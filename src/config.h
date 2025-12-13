@@ -9,7 +9,7 @@
  *    "./lib/EpdFont/builtinFonts/bookerly_italic_2b.h",
  *  ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
  */
-#define READER_FONT_ID 1747632454
+#define READER_FONT_ID 828106571
 
 /**
  * Generated with:
