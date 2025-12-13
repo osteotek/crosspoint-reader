@@ -25,6 +25,31 @@ void logReaderException(const char* phase, const char* message) {
     Serial.printf("[%lu] [ERS] Exception during %s\n", millis(), phase);
   }
 }
+
+// RAII wrapper for FreeRTOS semaphores to ensure they are always released
+class MutexGuard {
+ public:
+  explicit MutexGuard(SemaphoreHandle_t mutex) : mutex_(mutex) {
+    if (mutex_) {
+      xSemaphoreTake(mutex_, portMAX_DELAY);
+    }
+  }
+
+  ~MutexGuard() {
+    if (mutex_) {
+      xSemaphoreGive(mutex_);
+    }
+  }
+
+  // Disable copy and move
+  MutexGuard(const MutexGuard&) = delete;
+  MutexGuard& operator=(const MutexGuard&) = delete;
+  MutexGuard(MutexGuard&&) = delete;
+  MutexGuard& operator=(MutexGuard&&) = delete;
+
+ private:
+  SemaphoreHandle_t mutex_;
+};
 }  // namespace
 
 void EpubReaderScreen::taskTrampoline(void* param) {
@@ -88,11 +113,12 @@ void EpubReaderScreen::onExit() {
     }
 
     if (renderingMutex) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
-    }
-    if (displayTaskHandle) {
-      vTaskDelete(displayTaskHandle);
-      displayTaskHandle = nullptr;
+      MutexGuard guard(renderingMutex);
+      if (displayTaskHandle) {
+        vTaskDelete(displayTaskHandle);
+        displayTaskHandle = nullptr;
+      }
+      // Guard will be released here before we delete the mutex
     }
     if (renderingMutex) {
       vSemaphoreDelete(renderingMutex);
@@ -122,7 +148,7 @@ void EpubReaderScreen::handleInput() {
         Serial.printf("[%lu] [ERS] Rendering mutex unavailable during BTN_CONFIRM\n", millis());
         return;
       }
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      MutexGuard guard(renderingMutex);
       subScreen.reset(new EpubReaderChapterSelectionScreen(
           this->renderer, this->inputManager, epub, currentSpineIndex,
           [this] {
@@ -141,7 +167,6 @@ void EpubReaderScreen::handleInput() {
             updateRequired = true;
           }));
       subScreen->onEnter();
-      xSemaphoreGive(renderingMutex);
     }
 
     if (inputManager.wasPressed(InputManager::BTN_BACK)) {
@@ -174,11 +199,10 @@ void EpubReaderScreen::handleInput() {
         Serial.printf("[%lu] [ERS] Rendering mutex unavailable during skipChapter\n", millis());
         return;
       }
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      MutexGuard guard(renderingMutex);
       nextPageNumber = 0;
       currentSpineIndex = nextReleased ? currentSpineIndex + 1 : currentSpineIndex - 1;
       section.reset();
-      xSemaphoreGive(renderingMutex);
       updateRequired = true;
       return;
     }
@@ -198,11 +222,10 @@ void EpubReaderScreen::handleInput() {
           Serial.printf("[%lu] [ERS] Rendering mutex unavailable during prev navigation\n", millis());
           return;
         }
-        xSemaphoreTake(renderingMutex, portMAX_DELAY);
+        MutexGuard guard(renderingMutex);
         nextPageNumber = UINT16_MAX;
         currentSpineIndex--;
         section.reset();
-        xSemaphoreGive(renderingMutex);
       }
       updateRequired = true;
     } else {
@@ -214,11 +237,10 @@ void EpubReaderScreen::handleInput() {
           Serial.printf("[%lu] [ERS] Rendering mutex unavailable during next navigation\n", millis());
           return;
         }
-        xSemaphoreTake(renderingMutex, portMAX_DELAY);
+        MutexGuard guard(renderingMutex);
         nextPageNumber = 0;
         currentSpineIndex++;
         section.reset();
-        xSemaphoreGive(renderingMutex);
       }
       updateRequired = true;
     }
@@ -233,7 +255,7 @@ void EpubReaderScreen::displayTaskLoop() {
   while (true) {
     if (updateRequired) {
       updateRequired = false;
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      MutexGuard guard(renderingMutex);
       try {
         renderScreen();
       } catch (const std::exception& ex) {
@@ -241,7 +263,6 @@ void EpubReaderScreen::displayTaskLoop() {
       } catch (...) {
         logReaderException("renderScreen", "Unknown error");
       }
-      xSemaphoreGive(renderingMutex);
     }
     vTaskDelay(10 / portTICK_PERIOD_MS);
   }
