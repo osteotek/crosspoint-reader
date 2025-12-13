@@ -17,9 +17,11 @@ class EpubReaderScreen final : public Screen {
       }
     }
     ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
-    // Delete copy operations to prevent double-release
+    // Delete copy and move operations to prevent double-release
     MutexGuard(const MutexGuard&) = delete;
     MutexGuard& operator=(const MutexGuard&) = delete;
+    MutexGuard(MutexGuard&&) = delete;
+    MutexGuard& operator=(MutexGuard&&) = delete;
   };
 
   std::shared_ptr<Epub> epub;
