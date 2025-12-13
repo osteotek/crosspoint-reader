@@ -162,7 +162,7 @@ void EpubReaderScreen::handleInput() {
       return;
     }
 
-    // any botton press when at end of the book goes back to the last page
+    // any button press when at end of the book goes back to the last page
     if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
       currentSpineIndex = epub->getSpineItemsCount() - 1;
       nextPageNumber = UINT16_MAX;
