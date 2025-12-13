@@ -409,7 +409,7 @@ size_t russianOnsetLength(const std::vector<CodepointInfo>& cps, const size_t cl
 
 bool nextToApostrophe(const std::vector<CodepointInfo>& cps, size_t index) {
   if (index == 0 || index >= cps.size()) {
-    return true;
+    return false;
   }
   const auto left = cps[index - 1].value;
   const auto right = cps[index].value;
@@ -418,7 +418,7 @@ bool nextToApostrophe(const std::vector<CodepointInfo>& cps, size_t index) {
 
 bool nextToSoftSign(const std::vector<CodepointInfo>& cps, size_t index) {
   if (index == 0 || index >= cps.size()) {
-    return true;
+    return false;
   }
   const auto left = cps[index - 1].value;
   const auto right = cps[index].value;
