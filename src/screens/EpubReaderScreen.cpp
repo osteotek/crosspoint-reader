@@ -88,12 +88,15 @@ void EpubReaderScreen::onExit() {
     }
 
     if (renderingMutex) {
-      MutexGuard mutexGuard(renderingMutex);
+      {
+        MutexGuard mutexGuard(renderingMutex);
 
-      if (displayTaskHandle) {
-        vTaskDelete(displayTaskHandle);
-        displayTaskHandle = nullptr;
+        if (displayTaskHandle) {
+          vTaskDelete(displayTaskHandle);
+          displayTaskHandle = nullptr;
+        }
       }
+      // Mutex is now released by MutexGuard destructor, safe to delete
       vSemaphoreDelete(renderingMutex);
       renderingMutex = nullptr;
     }
