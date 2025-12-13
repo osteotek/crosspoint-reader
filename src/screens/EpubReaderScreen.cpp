@@ -228,7 +228,7 @@ void EpubReaderScreen::displayTaskLoop() {
   while (true) {
     if (updateRequired) {
       updateRequired = false;
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      MutexGuard mutexGuard(renderingMutex);
       try {
         renderScreen();
       } catch (const std::exception& ex) {
@@ -236,7 +236,6 @@ void EpubReaderScreen::displayTaskLoop() {
       } catch (...) {
         logReaderException("renderScreen", "Unknown error");
       }
-      xSemaphoreGive(renderingMutex);
     }
     vTaskDelay(10 / portTICK_PERIOD_MS);
   }
