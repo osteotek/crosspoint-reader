@@ -3,6 +3,7 @@
 #include <Epub/Page.h>
 #include <GfxRenderer.h>
 #include <SD.h>
+#include <exception>
 
 #include "Battery.h"
 #include "EpubReaderChapterSelectionScreen.h"
@@ -16,152 +17,247 @@ constexpr int marginRight = 10;
 constexpr int marginBottom = 22;
 constexpr int marginLeft = 10;
 
+namespace {
+void logReaderException(const char* phase, const char* message) {
+  if (message) {
+    Serial.printf("[%lu] [ERS] Exception during %s: %s\n", millis(), phase, message);
+  } else {
+    Serial.printf("[%lu] [ERS] Exception during %s\n", millis(), phase);
+  }
+}
+
+// RAII wrapper for FreeRTOS semaphore to ensure it's always released
+class SemaphoreGuard {
+ public:
+  // Constructor takes the semaphore with portMAX_DELAY (blocks indefinitely until acquired)
+  explicit SemaphoreGuard(SemaphoreHandle_t semaphore) : semaphore_(semaphore), locked_(false) {
+    if (semaphore_) {
+      locked_ = xSemaphoreTake(semaphore_, portMAX_DELAY) == pdTRUE;
+    }
+  }
+
+  ~SemaphoreGuard() {
+    if (locked_ && semaphore_) {
+      xSemaphoreGive(semaphore_);
+    }
+  }
+
+  // Disable copying and moving
+  SemaphoreGuard(const SemaphoreGuard&) = delete;
+  SemaphoreGuard& operator=(const SemaphoreGuard&) = delete;
+  SemaphoreGuard(SemaphoreGuard&&) = delete;
+  SemaphoreGuard& operator=(SemaphoreGuard&&) = delete;
+
+  bool isLocked() const { return locked_; }
+
+ private:
+  SemaphoreHandle_t semaphore_;
+  bool locked_;
+};
+}  // namespace
+
 void EpubReaderScreen::taskTrampoline(void* param) {
   auto* self = static_cast<EpubReaderScreen*>(param);
-  self->displayTaskLoop();
+  try {
+    self->displayTaskLoop();
+  } catch (const std::exception& ex) {
+    logReaderException("displayTaskLoop", ex.what());
+  } catch (...) {
+    logReaderException("displayTaskLoop", "Unknown error");
+  }
+  vTaskDelete(nullptr);
 }
 
 void EpubReaderScreen::onEnter() {
-  if (!epub) {
-    return;
+  try {
+    if (!epub) {
+      return;
+    }
+
+    renderingMutex = xSemaphoreCreateMutex();
+    if (!renderingMutex) {
+      Serial.printf("[%lu] [ERS] Failed to create rendering mutex\n", millis());
+      return;
+    }
+
+    epub->setupCacheDir();
+
+    // TODO: Move this to a state object
+    if (SD.exists((epub->getCachePath() + "/progress.bin").c_str())) {
+      File f = SD.open((epub->getCachePath() + "/progress.bin").c_str());
+      uint8_t data[4];
+      f.read(data, 4);
+      currentSpineIndex = data[0] + (data[1] << 8);
+      nextPageNumber = data[2] + (data[3] << 8);
+      Serial.printf("[%lu] [ERS] Loaded cache: %d, %d\n", millis(), currentSpineIndex, nextPageNumber);
+      f.close();
+    }
+
+    // Trigger first update
+    updateRequired = true;
+
+    xTaskCreate(&EpubReaderScreen::taskTrampoline, "EpubReaderScreenTask",
+                8192,               // Stack size
+                this,               // Parameters
+                1,                  // Priority
+                &displayTaskHandle  // Task handle
+    );
+  } catch (const std::exception& ex) {
+    logReaderException("onEnter", ex.what());
+  } catch (...) {
+    logReaderException("onEnter", "Unknown error");
   }
-
-  renderingMutex = xSemaphoreCreateMutex();
-
-  epub->setupCacheDir();
-
-  // TODO: Move this to a state object
-  if (SD.exists((epub->getCachePath() + "/progress.bin").c_str())) {
-    File f = SD.open((epub->getCachePath() + "/progress.bin").c_str());
-    uint8_t data[4];
-    f.read(data, 4);
-    currentSpineIndex = data[0] + (data[1] << 8);
-    nextPageNumber = data[2] + (data[3] << 8);
-    Serial.printf("[%lu] [ERS] Loaded cache: %d, %d\n", millis(), currentSpineIndex, nextPageNumber);
-    f.close();
-  }
-
-  // Trigger first update
-  updateRequired = true;
-
-  xTaskCreate(&EpubReaderScreen::taskTrampoline, "EpubReaderScreenTask",
-              8192,               // Stack size
-              this,               // Parameters
-              1,                  // Priority
-              &displayTaskHandle  // Task handle
-  );
 }
 
 void EpubReaderScreen::onExit() {
-  // Wait until not rendering to delete task to avoid killing mid-instruction to EPD
-  xSemaphoreTake(renderingMutex, portMAX_DELAY);
-  if (displayTaskHandle) {
-    vTaskDelete(displayTaskHandle);
-    displayTaskHandle = nullptr;
+  try {
+    if (subScreen) {
+      subScreen->onExit();
+      subScreen.reset();
+    }
+
+    // Take mutex and terminate rendering task before cleanup
+    // Note: We intentionally don't release the mutex before deleting it
+    // to prevent any potential race conditions during shutdown
+    if (renderingMutex) {
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      struct MutexGuard {
+        SemaphoreHandle_t mutex;
+        MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
+        ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
+      } mutexGuard(renderingMutex);
+
+      if (displayTaskHandle) {
+        vTaskDelete(displayTaskHandle);
+        displayTaskHandle = nullptr;
+      }
+      vSemaphoreDelete(renderingMutex);
+      renderingMutex = nullptr;
+    }
+    section.reset();
+    epub.reset();
+  } catch (const std::exception& ex) {
+    logReaderException("onExit", ex.what());
+  } catch (...) {
+    logReaderException("onExit", "Unknown error");
   }
-  vSemaphoreDelete(renderingMutex);
-  renderingMutex = nullptr;
-  section.reset();
-  epub.reset();
 }
 
 void EpubReaderScreen::handleInput() {
-  // Pass input responsibility to sub screen if exists
-  if (subScreen) {
-    subScreen->handleInput();
-    return;
-  }
+  try {
+    // Pass input responsibility to sub screen if exists
+    if (subScreen) {
+      subScreen->handleInput();
+      return;
+    }
 
-  // Enter chapter selection screen
-  if (inputManager.wasPressed(InputManager::BTN_CONFIRM)) {
-    // Don't start screen transition while rendering
-    xSemaphoreTake(renderingMutex, portMAX_DELAY);
-    subScreen.reset(new EpubReaderChapterSelectionScreen(
-        this->renderer, this->inputManager, epub, currentSpineIndex,
-        [this] {
-          subScreen->onExit();
-          subScreen.reset();
-          updateRequired = true;
-        },
-        [this](const int newSpineIndex) {
-          if (currentSpineIndex != newSpineIndex) {
-            currentSpineIndex = newSpineIndex;
-            nextPageNumber = 0;
-            section.reset();
-          }
-          subScreen->onExit();
-          subScreen.reset();
-          updateRequired = true;
-        }));
-    subScreen->onEnter();
-    xSemaphoreGive(renderingMutex);
-  }
+    // Enter chapter selection screen
+    if (inputManager.wasPressed(InputManager::BTN_CONFIRM)) {
+      // Don't start screen transition while rendering
+      if (!renderingMutex) {
+        Serial.printf("[%lu] [ERS] Rendering mutex unavailable during BTN_CONFIRM\n", millis());
+        return;
+      }
+      SemaphoreGuard guard(renderingMutex);
+      subScreen.reset(new EpubReaderChapterSelectionScreen(
+          this->renderer, this->inputManager, epub, currentSpineIndex,
+          [this] {
+            subScreen->onExit();
+            subScreen.reset();
+            updateRequired = true;
+          },
+          [this](const int newSpineIndex) {
+            if (currentSpineIndex != newSpineIndex) {
+              currentSpineIndex = newSpineIndex;
+              nextPageNumber = 0;
+              section.reset();
+            }
+            subScreen->onExit();
+            subScreen.reset();
+            updateRequired = true;
+          }));
+      subScreen->onEnter();
+    }
 
-  if (inputManager.wasPressed(InputManager::BTN_BACK)) {
-    onGoHome();
-    return;
-  }
+    if (inputManager.wasPressed(InputManager::BTN_BACK)) {
+      onGoHome();
+      return;
+    }
 
-  const bool prevReleased =
-      inputManager.wasReleased(InputManager::BTN_UP) || inputManager.wasReleased(InputManager::BTN_LEFT);
-  const bool nextReleased =
-      inputManager.wasReleased(InputManager::BTN_DOWN) || inputManager.wasReleased(InputManager::BTN_RIGHT);
+    const bool prevReleased =
+        inputManager.wasReleased(InputManager::BTN_UP) || inputManager.wasReleased(InputManager::BTN_LEFT);
+    const bool nextReleased =
+        inputManager.wasReleased(InputManager::BTN_DOWN) || inputManager.wasReleased(InputManager::BTN_RIGHT);
 
-  if (!prevReleased && !nextReleased) {
-    return;
-  }
+    if (!prevReleased && !nextReleased) {
+      return;
+    }
 
-  // any botton press when at end of the book goes back to the last page
-  if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
-    currentSpineIndex = epub->getSpineItemsCount() - 1;
-    nextPageNumber = UINT16_MAX;
-    updateRequired = true;
-    return;
-  }
-
-  const bool skipChapter = inputManager.getHeldTime() > SKIP_CHAPTER_MS;
-
-  if (skipChapter) {
-    // We don't want to delete the section mid-render, so grab the semaphore
-    xSemaphoreTake(renderingMutex, portMAX_DELAY);
-    nextPageNumber = 0;
-    currentSpineIndex = nextReleased ? currentSpineIndex + 1 : currentSpineIndex - 1;
-    section.reset();
-    xSemaphoreGive(renderingMutex);
-    updateRequired = true;
-    return;
-  }
-
-  // No current section, attempt to rerender the book
-  if (!section) {
-    updateRequired = true;
-    return;
-  }
-
-  if (prevReleased) {
-    if (section->currentPage > 0) {
-      section->currentPage--;
-    } else {
-      // We don't want to delete the section mid-render, so grab the semaphore
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+    // any button press when at end of the book goes back to the last page
+    if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
+      currentSpineIndex = epub->getSpineItemsCount() - 1;
       nextPageNumber = UINT16_MAX;
-      currentSpineIndex--;
-      section.reset();
-      xSemaphoreGive(renderingMutex);
+      updateRequired = true;
+      return;
     }
-    updateRequired = true;
-  } else {
-    if (section->currentPage < section->pageCount - 1) {
-      section->currentPage++;
-    } else {
+
+    const bool skipChapter = inputManager.getHeldTime() > SKIP_CHAPTER_MS;
+
+    if (skipChapter) {
       // We don't want to delete the section mid-render, so grab the semaphore
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      if (!renderingMutex) {
+        Serial.printf("[%lu] [ERS] Rendering mutex unavailable during skipChapter\n", millis());
+        return;
+      }
+      SemaphoreGuard guard(renderingMutex);
       nextPageNumber = 0;
-      currentSpineIndex++;
+      currentSpineIndex = nextReleased ? currentSpineIndex + 1 : currentSpineIndex - 1;
       section.reset();
-      xSemaphoreGive(renderingMutex);
+      updateRequired = true;
+      return;
     }
-    updateRequired = true;
+
+    // No current section, attempt to rerender the book
+    if (!section) {
+      updateRequired = true;
+      return;
+    }
+
+    if (prevReleased) {
+      if (section->currentPage > 0) {
+        section->currentPage--;
+      } else {
+        // We don't want to delete the section mid-render, so grab the semaphore
+        if (!renderingMutex) {
+          Serial.printf("[%lu] [ERS] Rendering mutex unavailable during prev navigation\n", millis());
+          return;
+        }
+        SemaphoreGuard guard(renderingMutex);
+        nextPageNumber = UINT16_MAX;
+        currentSpineIndex--;
+        section.reset();
+      }
+      updateRequired = true;
+    } else {
+      if (section->currentPage < section->pageCount - 1) {
+        section->currentPage++;
+      } else {
+        // We don't want to delete the section mid-render, so grab the semaphore
+        if (!renderingMutex) {
+          Serial.printf("[%lu] [ERS] Rendering mutex unavailable during next navigation\n", millis());
+          return;
+        }
+        SemaphoreGuard guard(renderingMutex);
+        nextPageNumber = 0;
+        currentSpineIndex++;
+        section.reset();
+      }
+      updateRequired = true;
+    }
+  } catch (const std::exception& ex) {
+    logReaderException("handleInput", ex.what());
+  } catch (...) {
+    logReaderException("handleInput", "Unknown error");
   }
 }
 
@@ -169,9 +265,14 @@ void EpubReaderScreen::displayTaskLoop() {
   while (true) {
     if (updateRequired) {
       updateRequired = false;
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
-      renderScreen();
-      xSemaphoreGive(renderingMutex);
+      SemaphoreGuard guard(renderingMutex);
+      try {
+        renderScreen();
+      } catch (const std::exception& ex) {
+        logReaderException("renderScreen", ex.what());
+      } catch (...) {
+        logReaderException("renderScreen", "Unknown error");
+      }
     }
     vTaskDelay(10 / portTICK_PERIOD_MS);
   }

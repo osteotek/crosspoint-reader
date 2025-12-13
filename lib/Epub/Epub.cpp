@@ -122,6 +122,42 @@ bool Epub::parseTocNcxFile() {
   return true;
 }
 
+void Epub::buildFallbackTocFromSpine() {
+  toc.clear();
+  toc.reserve(spine.size());
+
+  for (size_t i = 0; i < spine.size(); i++) {
+    const auto& href = spine[i].second;
+
+    std::string title;
+    const auto slashPos = href.find_last_of('/');
+    if (slashPos != std::string::npos && slashPos + 1 < href.length()) {
+      title = href.substr(slashPos + 1);
+    } else {
+      title = href;
+    }
+
+    const auto dotPos = title.find_last_of('.');
+    if (dotPos != std::string::npos) {
+      title = title.substr(0, dotPos);
+    }
+
+    for (auto& ch : title) {
+      if (ch == '_' || ch == '-') {
+        ch = ' ';
+      }
+    }
+
+    if (title.empty()) {
+      title = "Chapter " + std::to_string(i + 1);
+    }
+
+    toc.emplace_back(title, href, "", 1);
+  }
+
+  Serial.printf("[%lu] [EBP] Generated fallback TOC with %d entries\n", millis(), toc.size());
+}
+
 // load in the meta data for the epub file
 bool Epub::load() {
   Serial.printf("[%lu] [EBP] Loading ePub: %s\n", millis(), filepath.c_str());
@@ -143,8 +179,8 @@ bool Epub::load() {
   }
 
   if (!parseTocNcxFile()) {
-    Serial.printf("[%lu] [EBP] Could not parse toc\n", millis());
-    return false;
+    Serial.printf("[%lu] [EBP] Could not parse toc, generating fallback\n", millis());
+    buildFallbackTocFromSpine();
   }
 
   Serial.printf("[%lu] [EBP] Loaded ePub: %s\n", millis(), filepath.c_str());
