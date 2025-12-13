@@ -89,12 +89,16 @@ void EpubReaderScreen::onExit() {
 
     if (renderingMutex) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
-    }
-    if (displayTaskHandle) {
-      vTaskDelete(displayTaskHandle);
-      displayTaskHandle = nullptr;
-    }
-    if (renderingMutex) {
+      struct MutexGuard {
+        SemaphoreHandle_t mutex;
+        MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
+        ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
+      } mutexGuard(renderingMutex);
+
+      if (displayTaskHandle) {
+        vTaskDelete(displayTaskHandle);
+        displayTaskHandle = nullptr;
+      }
       vSemaphoreDelete(renderingMutex);
       renderingMutex = nullptr;
     }
