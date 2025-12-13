@@ -1,4 +1,4 @@
--# CrossPoint Reader – Copilot Guide
+# CrossPoint Reader – Copilot Guide
 
 - **Firmware target**: [README.md](../README.md) describes an ESP32-C3 firmware for the Xteink X4 e-paper reader; everything expects the PlatformIO Arduino stack and a 16 MB flash layout.
 - **Build & flash**: use `pio run` (default dev env) and `pio run --target upload` for flashing; release binaries come from the `gh_release` env defined in [platformio.ini](../platformio.ini) which flips `CROSSPOINT_VERSION` to the tagged value.
