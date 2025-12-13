@@ -88,7 +88,6 @@ void EpubReaderScreen::onExit() {
     }
 
     if (renderingMutex) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
       MutexGuard mutexGuard(renderingMutex);
 
       if (displayTaskHandle) {
@@ -122,7 +121,6 @@ void EpubReaderScreen::handleInput() {
         Serial.printf("[%lu] [ERS] Rendering mutex unavailable during BTN_CONFIRM\n", millis());
         return;
       }
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
       MutexGuard mutexGuard(renderingMutex);
       subScreen.reset(new EpubReaderChapterSelectionScreen(
           this->renderer, this->inputManager, epub, currentSpineIndex,
@@ -174,7 +172,6 @@ void EpubReaderScreen::handleInput() {
         Serial.printf("[%lu] [ERS] Rendering mutex unavailable during skipChapter\n", millis());
         return;
       }
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
       MutexGuard mutexGuard(renderingMutex);
       nextPageNumber = 0;
       currentSpineIndex = nextReleased ? currentSpineIndex + 1 : currentSpineIndex - 1;
@@ -198,7 +195,6 @@ void EpubReaderScreen::handleInput() {
           Serial.printf("[%lu] [ERS] Rendering mutex unavailable during prev navigation\n", millis());
           return;
         }
-        xSemaphoreTake(renderingMutex, portMAX_DELAY);
         MutexGuard mutexGuard(renderingMutex);
         nextPageNumber = UINT16_MAX;
         currentSpineIndex--;
@@ -214,7 +210,6 @@ void EpubReaderScreen::handleInput() {
           Serial.printf("[%lu] [ERS] Rendering mutex unavailable during next navigation\n", millis());
           return;
         }
-        xSemaphoreTake(renderingMutex, portMAX_DELAY);
         MutexGuard mutexGuard(renderingMutex);
         nextPageNumber = 0;
         currentSpineIndex++;

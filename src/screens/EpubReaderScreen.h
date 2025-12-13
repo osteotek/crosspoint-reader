@@ -11,7 +11,11 @@ class EpubReaderScreen final : public Screen {
   // RAII helper for exception-safe mutex management
   struct MutexGuard {
     SemaphoreHandle_t mutex;
-    MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
+    explicit MutexGuard(SemaphoreHandle_t m) : mutex(m) {
+      if (mutex) {
+        xSemaphoreTake(mutex, portMAX_DELAY);
+      }
+    }
     ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
   };
 
