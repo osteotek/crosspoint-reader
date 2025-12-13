@@ -27,10 +27,12 @@ void logReaderException(const char* phase, const char* message) {
 }
 
 // RAII wrapper for semaphore to ensure it's always released
-struct MutexGuard {
+class MutexGuard {
+private:
   SemaphoreHandle_t mutex;
   bool acquired;
   
+public:
   explicit MutexGuard(SemaphoreHandle_t m) : mutex(m), acquired(false) {
     if (mutex) {
       acquired = (xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE);
@@ -41,6 +43,9 @@ struct MutexGuard {
       xSemaphoreGive(mutex);
     }
   }
+  
+  bool isAcquired() const { return acquired; }
+  
   // Prevent copying and moving
   MutexGuard(const MutexGuard&) = delete;
   MutexGuard& operator=(const MutexGuard&) = delete;
