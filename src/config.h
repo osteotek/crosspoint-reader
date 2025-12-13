@@ -18,7 +18,7 @@
  *    "./lib/EpdFont/builtinFonts/ubuntu_bold_10.h",
  *  ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
  */
-#define UI_FONT_ID 225955604
+#define UI_FONT_ID -56235187
 
 /**
  * Generated with:
