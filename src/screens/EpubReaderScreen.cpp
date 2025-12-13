@@ -29,6 +29,7 @@ void logReaderException(const char* phase, const char* message) {
 // RAII wrapper for FreeRTOS semaphore to ensure it's always released
 class SemaphoreGuard {
  public:
+  // Constructor takes the semaphore with portMAX_DELAY (blocks indefinitely until acquired)
   explicit SemaphoreGuard(SemaphoreHandle_t semaphore) : semaphore_(semaphore), locked_(false) {
     if (semaphore_) {
       locked_ = xSemaphoreTake(semaphore_, portMAX_DELAY) == pdTRUE;
@@ -115,13 +116,17 @@ void EpubReaderScreen::onExit() {
       subScreen.reset();
     }
 
+    // Take mutex to ensure rendering task is not using resources
     if (renderingMutex) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      SemaphoreGuard guard(renderingMutex);
+      if (displayTaskHandle) {
+        vTaskDelete(displayTaskHandle);
+        displayTaskHandle = nullptr;
+      }
+      // Guard will release mutex before it's deleted
     }
-    if (displayTaskHandle) {
-      vTaskDelete(displayTaskHandle);
-      displayTaskHandle = nullptr;
-    }
+    
+    // Now safe to delete the mutex itself
     if (renderingMutex) {
       vSemaphoreDelete(renderingMutex);
       renderingMutex = nullptr;
