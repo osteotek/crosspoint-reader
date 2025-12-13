@@ -108,20 +108,20 @@ void EpubReaderScreen::onExit() {
     }
 
     if (renderingMutex) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
-      struct MutexGuard {
-        SemaphoreHandle_t mutex;
-        MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
-        ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
-      } mutexGuard(renderingMutex);
+      MutexGuard guard(renderingMutex);
 
       if (displayTaskHandle) {
         vTaskDelete(displayTaskHandle);
         displayTaskHandle = nullptr;
       }
+    }
+    
+    // Delete the mutex after releasing it via guard destructor
+    if (renderingMutex) {
       vSemaphoreDelete(renderingMutex);
       renderingMutex = nullptr;
     }
+    
     section.reset();
     epub.reset();
   } catch (const std::exception& ex) {
