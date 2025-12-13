@@ -127,6 +127,11 @@ void EpubReaderScreen::handleInput() {
         return;
       }
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      struct MutexGuard {
+        SemaphoreHandle_t mutex;
+        MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
+        ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
+      } mutexGuard(renderingMutex);
       subScreen.reset(new EpubReaderChapterSelectionScreen(
           this->renderer, this->inputManager, epub, currentSpineIndex,
           [this] {
@@ -145,7 +150,6 @@ void EpubReaderScreen::handleInput() {
             updateRequired = true;
           }));
       subScreen->onEnter();
-      xSemaphoreGive(renderingMutex);
     }
 
     if (inputManager.wasPressed(InputManager::BTN_BACK)) {
@@ -179,10 +183,14 @@ void EpubReaderScreen::handleInput() {
         return;
       }
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      struct MutexGuard {
+        SemaphoreHandle_t mutex;
+        MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
+        ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
+      } mutexGuard(renderingMutex);
       nextPageNumber = 0;
       currentSpineIndex = nextReleased ? currentSpineIndex + 1 : currentSpineIndex - 1;
       section.reset();
-      xSemaphoreGive(renderingMutex);
       updateRequired = true;
       return;
     }
@@ -203,10 +211,14 @@ void EpubReaderScreen::handleInput() {
           return;
         }
         xSemaphoreTake(renderingMutex, portMAX_DELAY);
+        struct MutexGuard {
+          SemaphoreHandle_t mutex;
+          MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
+          ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
+        } mutexGuard(renderingMutex);
         nextPageNumber = UINT16_MAX;
         currentSpineIndex--;
         section.reset();
-        xSemaphoreGive(renderingMutex);
       }
       updateRequired = true;
     } else {
@@ -219,10 +231,14 @@ void EpubReaderScreen::handleInput() {
           return;
         }
         xSemaphoreTake(renderingMutex, portMAX_DELAY);
+        struct MutexGuard {
+          SemaphoreHandle_t mutex;
+          MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
+          ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
+        } mutexGuard(renderingMutex);
         nextPageNumber = 0;
         currentSpineIndex++;
         section.reset();
-        xSemaphoreGive(renderingMutex);
       }
       updateRequired = true;
     }
