@@ -29,19 +29,23 @@ void logReaderException(const char* phase, const char* message) {
 // RAII wrapper for semaphore to ensure it's always released
 struct MutexGuard {
   SemaphoreHandle_t mutex;
-  explicit MutexGuard(SemaphoreHandle_t m) : mutex(m) {
+  bool acquired;
+  
+  explicit MutexGuard(SemaphoreHandle_t m) : mutex(m), acquired(false) {
     if (mutex) {
-      xSemaphoreTake(mutex, portMAX_DELAY);
+      acquired = (xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE);
     }
   }
   ~MutexGuard() {
-    if (mutex) {
+    if (mutex && acquired) {
       xSemaphoreGive(mutex);
     }
   }
-  // Prevent copying
+  // Prevent copying and moving
   MutexGuard(const MutexGuard&) = delete;
   MutexGuard& operator=(const MutexGuard&) = delete;
+  MutexGuard(MutexGuard&&) = delete;
+  MutexGuard& operator=(MutexGuard&&) = delete;
 };
 }  // namespace
 
@@ -176,7 +180,7 @@ void EpubReaderScreen::handleInput() {
       return;
     }
 
-    // any botton press when at end of the book goes back to the last page
+    // any button press when at end of the book goes back to the last page
     if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
       currentSpineIndex = epub->getSpineItemsCount() - 1;
       nextPageNumber = UINT16_MAX;
