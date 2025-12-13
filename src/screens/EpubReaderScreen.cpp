@@ -39,6 +39,11 @@ struct MutexGuard {
       xSemaphoreGive(mutex);
     }
   }
+  // Prevent copying and moving to avoid double-release
+  MutexGuard(const MutexGuard&) = delete;
+  MutexGuard& operator=(const MutexGuard&) = delete;
+  MutexGuard(MutexGuard&&) = delete;
+  MutexGuard& operator=(MutexGuard&&) = delete;
 };
 }  // namespace
 
@@ -176,7 +181,7 @@ void EpubReaderScreen::handleInput() {
       return;
     }
 
-    // any botton press when at end of the book goes back to the last page
+    // any button press when at end of the book goes back to the last page
     if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
       currentSpineIndex = epub->getSpineItemsCount() - 1;
       nextPageNumber = UINT16_MAX;
