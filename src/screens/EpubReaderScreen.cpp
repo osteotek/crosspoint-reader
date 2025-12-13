@@ -116,17 +116,16 @@ void EpubReaderScreen::onExit() {
       subScreen.reset();
     }
 
-    // Take mutex to ensure rendering task is not using resources
+    // Take mutex and terminate rendering task before cleanup
+    // Note: We intentionally don't release the mutex before deleting it
+    // to prevent any potential race conditions during shutdown
     if (renderingMutex) {
-      SemaphoreGuard guard(renderingMutex);
-      if (displayTaskHandle) {
-        vTaskDelete(displayTaskHandle);
-        displayTaskHandle = nullptr;
-      }
-      // Guard will release mutex before it's deleted
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
     }
-    
-    // Now safe to delete the mutex itself
+    if (displayTaskHandle) {
+      vTaskDelete(displayTaskHandle);
+      displayTaskHandle = nullptr;
+    }
     if (renderingMutex) {
       vSemaphoreDelete(renderingMutex);
       renderingMutex = nullptr;
