@@ -665,7 +665,7 @@ bool Hyphenator::splitWord(const GfxRenderer& renderer, const int fontId, const 
       const int prefixWidth = renderer.getTextWidth(fontId, prefix.c_str(), style);
       if (adjustedWidth <= 0 || prefixWidth <= adjustedWidth) {
         chosenIndex = idx;
-        if (adjustedWidth > 0 && prefixWidth >= adjustedWidth) {
+        if (adjustedWidth > 0 && prefixWidth > adjustedWidth) {
           break;
         }
       }
