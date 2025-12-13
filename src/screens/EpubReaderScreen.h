@@ -8,6 +8,13 @@
 #include "Screen.h"
 
 class EpubReaderScreen final : public Screen {
+  // RAII helper for exception-safe mutex management
+  struct MutexGuard {
+    SemaphoreHandle_t mutex;
+    MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
+    ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
+  };
+
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
   TaskHandle_t displayTaskHandle = nullptr;

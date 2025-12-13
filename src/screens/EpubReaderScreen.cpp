@@ -89,11 +89,7 @@ void EpubReaderScreen::onExit() {
 
     if (renderingMutex) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
-      struct MutexGuard {
-        SemaphoreHandle_t mutex;
-        MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
-        ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
-      } mutexGuard(renderingMutex);
+      MutexGuard mutexGuard(renderingMutex);
 
       if (displayTaskHandle) {
         vTaskDelete(displayTaskHandle);
@@ -127,11 +123,7 @@ void EpubReaderScreen::handleInput() {
         return;
       }
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
-      struct MutexGuard {
-        SemaphoreHandle_t mutex;
-        MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
-        ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
-      } mutexGuard(renderingMutex);
+      MutexGuard mutexGuard(renderingMutex);
       subScreen.reset(new EpubReaderChapterSelectionScreen(
           this->renderer, this->inputManager, epub, currentSpineIndex,
           [this] {
@@ -183,11 +175,7 @@ void EpubReaderScreen::handleInput() {
         return;
       }
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
-      struct MutexGuard {
-        SemaphoreHandle_t mutex;
-        MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
-        ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
-      } mutexGuard(renderingMutex);
+      MutexGuard mutexGuard(renderingMutex);
       nextPageNumber = 0;
       currentSpineIndex = nextReleased ? currentSpineIndex + 1 : currentSpineIndex - 1;
       section.reset();
@@ -211,11 +199,7 @@ void EpubReaderScreen::handleInput() {
           return;
         }
         xSemaphoreTake(renderingMutex, portMAX_DELAY);
-        struct MutexGuard {
-          SemaphoreHandle_t mutex;
-          MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
-          ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
-        } mutexGuard(renderingMutex);
+        MutexGuard mutexGuard(renderingMutex);
         nextPageNumber = UINT16_MAX;
         currentSpineIndex--;
         section.reset();
@@ -231,11 +215,7 @@ void EpubReaderScreen::handleInput() {
           return;
         }
         xSemaphoreTake(renderingMutex, portMAX_DELAY);
-        struct MutexGuard {
-          SemaphoreHandle_t mutex;
-          MutexGuard(SemaphoreHandle_t m) : mutex(m) {}
-          ~MutexGuard() { if (mutex) xSemaphoreGive(mutex); }
-        } mutexGuard(renderingMutex);
+        MutexGuard mutexGuard(renderingMutex);
         nextPageNumber = 0;
         currentSpineIndex++;
         section.reset();
