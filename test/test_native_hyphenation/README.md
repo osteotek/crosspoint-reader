@@ -88,8 +88,10 @@ g++ -std=c++2a -DUNIT_TEST \
 ## Test Implementation Details
 
 The tests use a mock `GfxRenderer` class (`GfxRenderer.h` stub) to avoid hardware dependencies. The mock renderer simulates character width calculations needed for width-based splitting decisions:
-- Regular characters: 10 pixels
+- Regular characters (per UTF-8 codepoint): 10 pixels
 - Hyphen: 5 pixels
+
+The mock properly handles multi-byte UTF-8 sequences (including Cyrillic characters) by counting codepoints rather than bytes, ensuring accurate width calculations for international text.
 
 This allows testing the hyphenation logic without requiring the actual e-ink display hardware or SDL dependencies.
 

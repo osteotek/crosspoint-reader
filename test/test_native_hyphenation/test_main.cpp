@@ -67,8 +67,13 @@ void test_latin_diphthong_ai() {
   std::string head, tail;
   bool result = canSplitWord("abstain", 100, &head, &tail);
   TEST_ASSERT_TRUE(result);
-  // Should not split the "ai" diphthong
-  TEST_ASSERT_FALSE(head == "absta-");  // Should not break before 'i' in 'ai'
+  // Verify the "ai" diphthong is not split - either "ai" should be in head or tail, not split across
+  std::string fullWord = head.substr(0, head.size() - 1) + tail;
+  TEST_ASSERT_EQUAL_STRING("abstain", fullWord.c_str());
+  // Check that 'a' and 'i' are in the same part
+  bool aiInHead = (head.find("ai") != std::string::npos);
+  bool aiInTail = (tail.find("ai") != std::string::npos);
+  TEST_ASSERT_TRUE(aiInHead || aiInTail);  // "ai" should stay together
 }
 
 void test_latin_diphthong_ea() {
