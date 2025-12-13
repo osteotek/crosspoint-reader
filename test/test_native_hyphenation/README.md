@@ -96,8 +96,7 @@ This allows testing the hyphenation logic without requiring the actual e-ink dis
 ## Files
 
 - `test_main.cpp` - Main test file with all 44 test cases
-- `GfxRenderer.h` - Mock GfxRenderer class to shadow the real implementation
-- `GfxRenderer_stub.h` - Source of the mock implementation
+- `GfxRenderer.h` - Mock GfxRenderer class to avoid hardware dependencies
 - `run_tests.sh` - Convenience script for quick test execution
 - `README.md` - This file
 

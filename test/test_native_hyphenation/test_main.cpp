@@ -2,6 +2,12 @@
 #include <string>
 #include <vector>
 
+// NOTE: Including .cpp files directly is intentional for unit testing.
+// This pattern is used here to create a self-contained test executable without
+// requiring a complex build configuration. Each test directory includes only
+// the specific source files it needs to test, avoiding linking issues and
+// keeping tests independent. This is a common pattern for lightweight unit tests.
+
 // Include font and UTF8 support first
 #include "../../lib/EpdFont/EpdFont.cpp"
 #include "../../lib/EpdFont/EpdFontFamily.cpp"
