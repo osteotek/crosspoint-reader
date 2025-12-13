@@ -5,6 +5,7 @@
 #include <InputManager.h>
 #include <SD.h>
 #include <SPI.h>
+#include <exception>
 #include <builtinFonts/bookerly_2b.h>
 #include <builtinFonts/bookerly_bold_2b.h>
 #include <builtinFonts/bookerly_bold_italic_2b.h>
@@ -87,6 +88,14 @@ void exitScreen() {
 void enterNewScreen(Screen* screen) {
   currentScreen = screen;
   currentScreen->onEnter();
+}
+
+void logException(const char* phase, const char* message) {
+  if (message) {
+    Serial.printf("[%lu] [ERR] Exception during %s: %s\n", millis(), phase, message);
+  } else {
+    Serial.printf("[%lu] [ERR] Exception during %s\n", millis(), phase);
+  }
 }
 
 // Verify long press on wake-up from deep sleep
@@ -173,69 +182,84 @@ void onGoHome() {
 void setup() {
   Serial.begin(115200);
 
-  Serial.printf("[%lu] [   ] Starting CrossPoint version " CROSSPOINT_VERSION "\n", millis());
+  try {
+    Serial.printf("[%lu] [   ] Starting CrossPoint version " CROSSPOINT_VERSION "\n", millis());
 
-  inputManager.begin();
-  verifyWakeupLongPress();
+    inputManager.begin();
+    verifyWakeupLongPress();
 
-  // Initialize pins
-  pinMode(BAT_GPIO0, INPUT);
+    // Initialize pins
+    pinMode(BAT_GPIO0, INPUT);
 
-  // Initialize SPI with custom pins
-  SPI.begin(EPD_SCLK, SD_SPI_MISO, EPD_MOSI, EPD_CS);
+    // Initialize SPI with custom pins
+    SPI.begin(EPD_SCLK, SD_SPI_MISO, EPD_MOSI, EPD_CS);
 
-  // Initialize display
-  einkDisplay.begin();
-  Serial.printf("[%lu] [   ] Display initialized\n", millis());
+    // Initialize display
+    einkDisplay.begin();
+    Serial.printf("[%lu] [   ] Display initialized\n", millis());
 
-  renderer.insertFont(READER_FONT_ID, bookerlyFontFamily);
-  renderer.insertFont(UI_FONT_ID, ubuntuFontFamily);
-  renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
-  Serial.printf("[%lu] [   ] Fonts setup\n", millis());
+    renderer.insertFont(READER_FONT_ID, bookerlyFontFamily);
+    renderer.insertFont(UI_FONT_ID, ubuntuFontFamily);
+    renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+    Serial.printf("[%lu] [   ] Fonts setup\n", millis());
 
-  exitScreen();
-  enterNewScreen(new BootLogoScreen(renderer, inputManager));
+    exitScreen();
+    enterNewScreen(new BootLogoScreen(renderer, inputManager));
 
-  // SD Card Initialization
-  SD.begin(SD_SPI_CS, SPI, SPI_FQ);
+    // SD Card Initialization
+    SD.begin(SD_SPI_CS, SPI, SPI_FQ);
 
-  appState.loadFromFile();
-  if (!appState.openEpubPath.empty()) {
-    auto epub = loadEpub(appState.openEpubPath);
-    if (epub) {
-      exitScreen();
-      enterNewScreen(new EpubReaderScreen(renderer, inputManager, std::move(epub), onGoHome));
-      // Ensure we're not still holding the power button before leaving setup
-      waitForPowerRelease();
-      return;
+    appState.loadFromFile();
+    if (!appState.openEpubPath.empty()) {
+      auto epub = loadEpub(appState.openEpubPath);
+      if (epub) {
+        exitScreen();
+        enterNewScreen(new EpubReaderScreen(renderer, inputManager, std::move(epub), onGoHome));
+        // Ensure we're not still holding the power button before leaving setup
+        waitForPowerRelease();
+        return;
+      }
     }
+
+    exitScreen();
+    enterNewScreen(new FileSelectionScreen(renderer, inputManager, onSelectEpubFile));
+
+    // Ensure we're not still holding the power button before leaving setup
+    waitForPowerRelease();
+  } catch (const std::exception& ex) {
+    logException("setup", ex.what());
+  } catch (...) {
+    logException("setup", "Unknown error");
   }
-
-  exitScreen();
-  enterNewScreen(new FileSelectionScreen(renderer, inputManager, onSelectEpubFile));
-
-  // Ensure we're not still holding the power button before leaving setup
-  waitForPowerRelease();
 }
 
 void loop() {
-  delay(10);
+  try {
+    delay(10);
 
-  static unsigned long lastMemPrint = 0;
-  if (Serial && millis() - lastMemPrint >= 10000) {
-    Serial.printf("[%lu] [MEM] Free: %d bytes, Total: %d bytes, Min Free: %d bytes\n", millis(), ESP.getFreeHeap(),
-                  ESP.getHeapSize(), ESP.getMinFreeHeap());
-    lastMemPrint = millis();
-  }
+    static unsigned long lastMemPrint = 0;
+    if (Serial && millis() - lastMemPrint >= 10000) {
+      Serial.printf("[%lu] [MEM] Free: %d bytes, Total: %d bytes, Min Free: %d bytes\n", millis(), ESP.getFreeHeap(),
+                    ESP.getHeapSize(), ESP.getMinFreeHeap());
+      lastMemPrint = millis();
+    }
 
-  inputManager.update();
-  if (inputManager.wasReleased(InputManager::BTN_POWER) && inputManager.getHeldTime() > POWER_BUTTON_WAKEUP_MS) {
-    enterDeepSleep();
-    // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
-    return;
-  }
+    inputManager.update();
+    if (inputManager.wasReleased(InputManager::BTN_POWER) &&
+        inputManager.getHeldTime() > POWER_BUTTON_WAKEUP_MS) {
+      enterDeepSleep();
+      // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
+      return;
+    }
 
-  if (currentScreen) {
-    currentScreen->handleInput();
+    if (currentScreen) {
+      currentScreen->handleInput();
+    }
+  } catch (const std::exception& ex) {
+    logException("loop", ex.what());
+    delay(1000);
+  } catch (...) {
+    logException("loop", "Unknown error");
+    delay(1000);
   }
 }
