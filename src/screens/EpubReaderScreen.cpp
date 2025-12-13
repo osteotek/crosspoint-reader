@@ -29,7 +29,7 @@ void logReaderException(const char* phase, const char* message) {
 // RAII wrapper for mutex to ensure it's always released, even on exceptions
 struct MutexGuard {
   SemaphoreHandle_t mutex;
-  MutexGuard(SemaphoreHandle_t m) : mutex(m) {
+  explicit MutexGuard(SemaphoreHandle_t m) : mutex(m) {
     if (mutex) {
       xSemaphoreTake(mutex, portMAX_DELAY);
     }
