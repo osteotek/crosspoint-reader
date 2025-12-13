@@ -113,6 +113,8 @@ void EpubReaderScreen::onExit() {
     }
 
     if (renderingMutex) {
+      // Take mutex before deleting task to ensure task is not mid-render
+      // The task will either be blocked on this mutex or will be between renders
       MutexGuard guard(renderingMutex);
       if (displayTaskHandle) {
         vTaskDelete(displayTaskHandle);
@@ -255,6 +257,10 @@ void EpubReaderScreen::displayTaskLoop() {
   while (true) {
     if (updateRequired) {
       updateRequired = false;
+      if (!renderingMutex) {
+        Serial.printf("[%lu] [ERS] Rendering mutex unavailable in displayTaskLoop\n", millis());
+        break;
+      }
       MutexGuard guard(renderingMutex);
       try {
         renderScreen();
