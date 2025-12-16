@@ -126,7 +126,11 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
     self->items[itemId] = href;
 
     if (mediaType == "application/x-dtbncx+xml") {
-      self->tocNcxPath = href;
+      if (self->tocNcxPath.empty()) {
+        self->tocNcxPath = href;
+      } else {
+        Serial.printf("[%lu] [COF] Warning: Multiple NCX files found in manifest. Ignoring duplicate: %s\n", millis(), href.c_str());
+      }
     }
     return;
   }
