@@ -1,7 +1,6 @@
 #include "ParsedText.h"
 
 #include <GfxRenderer.h>
-#include "hyphenation/Hyphenator.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,6 +8,8 @@
 #include <iterator>
 #include <limits>
 #include <vector>
+
+#include "hyphenation/Hyphenator.h"
 
 constexpr int MAX_COST = std::numeric_limits<int>::max();
 

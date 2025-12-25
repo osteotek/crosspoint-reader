@@ -93,18 +93,15 @@ bool englishSegmentHasVowel(const std::vector<CodepointInfo>& cps, const size_t 
 
 void appendMorphologyBreaks(const std::vector<CodepointInfo>& cps, const std::string& lowerWord,
                             std::vector<size_t>& indexes) {
-  static constexpr std::array<LatinLiteral, 20> PREFIXES = {{{"anti", 4},   {"auto", 4},   {"counter", 7}, {"de", 2},
-                                                             {"dis", 3},    {"hyper", 5},  {"inter", 5},   {"micro", 5},
-                                                             {"mis", 3},    {"mono", 4},   {"multi", 5},   {"non", 3},
-                                                             {"over", 4},   {"post", 4},   {"pre", 3},     {"pro", 3},
-                                                             {"re", 2},     {"sub", 3},    {"super", 5},   {"trans", 5}}};
+  static constexpr std::array<LatinLiteral, 20> PREFIXES = {
+      {{"anti", 4},  {"auto", 4}, {"counter", 7}, {"de", 2},    {"dis", 3},   {"hyper", 5}, {"inter", 5},
+       {"micro", 5}, {"mis", 3},  {"mono", 4},    {"multi", 5}, {"non", 3},   {"over", 4},  {"post", 4},
+       {"pre", 3},   {"pro", 3},  {"re", 2},      {"sub", 3},   {"super", 5}, {"trans", 5}}};
 
-  static constexpr std::array<LatinLiteral, 24> SUFFIXES = {{{"able", 4},   {"ible", 4},   {"ing", 3},    {"ings", 4},
-                                                             {"ed", 2},     {"er", 2},     {"ers", 3},    {"est", 3},
-                                                             {"ful", 3},    {"hood", 4},   {"less", 4},   {"lessly", 6},
-                                                             {"ly", 2},     {"ment", 4},   {"ments", 5},  {"ness", 4},
-                                                             {"ous", 3},    {"tion", 4},   {"sion", 4},   {"ward", 4},
-                                                             {"wards", 5},  {"ship", 4},   {"ships", 5},  {"y", 1}}};
+  static constexpr std::array<LatinLiteral, 24> SUFFIXES = {
+      {{"able", 4}, {"ible", 4}, {"ing", 3},  {"ings", 4},   {"ed", 2},    {"er", 2},   {"ers", 3},   {"est", 3},
+       {"ful", 3},  {"hood", 4}, {"less", 4}, {"lessly", 6}, {"ly", 2},    {"ment", 4}, {"ments", 5}, {"ness", 4},
+       {"ous", 3},  {"tion", 4}, {"sion", 4}, {"ward", 4},   {"wards", 5}, {"ship", 4}, {"ships", 5}, {"y", 1}}};
 
   const size_t length = cps.size();
   if (length < MIN_PREFIX_CP + MIN_SUFFIX_CP) {

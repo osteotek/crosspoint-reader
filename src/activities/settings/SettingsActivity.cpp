@@ -16,8 +16,7 @@ const SettingInfo settingsList[settingsCount] = {
     {"Extra Paragraph Spacing", SettingType::TOGGLE, &CrossPointSettings::extraParagraphSpacing, {}},
     {"Short Power Button Click", SettingType::TOGGLE, &CrossPointSettings::shortPwrBtn, {}},
     {"Check for updates", SettingType::ACTION, nullptr, {}},
-    {"Hyphenation", SettingType::TOGGLE, &CrossPointSettings::hyphenationEnabled, {}}
-};
+    {"Hyphenation", SettingType::TOGGLE, &CrossPointSettings::hyphenationEnabled, {}}};
 }  // namespace
 
 void SettingsActivity::taskTrampoline(void* param) {
