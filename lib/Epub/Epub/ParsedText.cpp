@@ -84,7 +84,6 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   const int pageWidth = renderer.getScreenWidth() - horizontalMargin;
   const int spaceWidth = renderer.getSpaceWidth(fontId);
-  // Pre-split oversized tokens so the DP step always has feasible line candidates.
   auto wordWidths = calculateWordWidths(renderer, fontId, pageWidth);
   auto lineBreakIndices = computeLineBreaks(renderer, fontId, pageWidth, spaceWidth, wordWidths);
   const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
@@ -114,6 +113,7 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
     uint16_t width = renderer.getTextWidth(fontId, wordsIt->c_str(), *wordStylesIt);
 
     if (width > pageWidth) {
+      // Pre-split oversized tokens so the DP step always has feasible line candidates.
       HyphenSplitDecision decision;
       if (chooseSplitForWidth(renderer, fontId, *wordsIt, *wordStylesIt, pageWidth, true, &decision)) {
         const std::string originalWord = *wordsIt;
