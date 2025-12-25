@@ -325,6 +325,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
 
   int spacing = spaceWidth;
   const bool isLastLine = breakIndex == lineBreakIndices.size() - 1;
+
   if (style == TextBlock::JUSTIFIED && !isLastLine && lineWordCount >= 2) {
     spacing = spareSpace / (lineWordCount - 1);
   }
