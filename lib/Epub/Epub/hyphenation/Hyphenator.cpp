@@ -1,11 +1,9 @@
 #include "Hyphenator.h"
 
-#include <GfxRenderer.h>
 #include <Utf8.h>
 
 #include <algorithm>
 #include <array>
-#include <limits>
 #include <vector>
 
 #include "EnglishHyphenator.h"
@@ -87,84 +85,44 @@ size_t byteOffsetForIndex(const std::vector<CodepointInfo>& cps, const size_t in
   return cps[index].byteOffset;
 }
 
-// Safely slices a UTF-8 string without splitting multibyte sequences.
-std::string slice(const std::string& word, const size_t startByte, const size_t endByte) {
-  if (startByte >= endByte || startByte >= word.size()) {
-    return std::string();
-  }
-  const size_t boundedEnd = std::min(endByte, word.size());
-  return word.substr(startByte, boundedEnd - startByte);
-}
-
 }  // namespace
 
-bool Hyphenator::splitWord(const GfxRenderer& renderer, const int fontId, const std::string& word,
-                           const EpdFontStyle style, const int availableWidth, HyphenationResult* result,
-                           const bool force) {
-  if (!result || word.empty()) {
-    return false;
+std::vector<size_t> Hyphenator::breakOffsets(const std::string& word, const bool includeFallback) {
+  std::vector<size_t> byteOffsets;
+  if (word.empty()) {
+    return byteOffsets;
   }
 
   auto cps = collectCodepoints(word);
   if (cps.size() < MIN_PREFIX_CP + MIN_SUFFIX_CP) {
-    return false;
+    return byteOffsets;
   }
 
-  // Skip mixed tokens (e.g., "v2.0") unless the caller forces a split due to overflow.
-  if (!force && !hasOnlyAlphabetic(cps)) {
-    return false;
+  std::vector<size_t> indexes;
+  indexes.reserve(cps.size());
+
+  if (hasOnlyAlphabetic(cps)) {
+    auto dictBreaks = collectBreakIndexes(cps);
+    indexes.insert(indexes.end(), dictBreaks.begin(), dictBreaks.end());
   }
 
-  const auto breakIndexes = collectBreakIndexes(cps);
-  // Budget for a trailing hyphen so rendered width matches the layout test.
-  const int hyphenWidth = renderer.getTextWidth(fontId, "-", style);
-  const int adjustedWidth = availableWidth - hyphenWidth;
-
-  size_t chosenIndex = std::numeric_limits<size_t>::max();
-
-  // Prefer dictionary-style break points emitted by language hyphenators.
-  if (adjustedWidth > 0) {
-    for (const size_t idx : breakIndexes) {
-      const size_t byteOffset = byteOffsetForIndex(cps, idx);
-      const std::string prefix = word.substr(0, byteOffset);
-      const int prefixWidth = renderer.getTextWidth(fontId, prefix.c_str(), style);
-      if (prefixWidth <= adjustedWidth) {
-        chosenIndex = idx;
-      } else {
-        break;
-      }
-    }
-  }
-
-  if (chosenIndex == std::numeric_limits<size_t>::max() && force) {
-    // Emergency fallback: brute-force through codepoints to avoid overflow when no legal breaks fit.
+  if (includeFallback) {
     for (size_t idx = MIN_PREFIX_CP; idx + MIN_SUFFIX_CP <= cps.size(); ++idx) {
-      const size_t byteOffset = byteOffsetForIndex(cps, idx);
-      const std::string prefix = word.substr(0, byteOffset);
-      const int prefixWidth = renderer.getTextWidth(fontId, prefix.c_str(), style);
-      if (adjustedWidth <= 0 || prefixWidth <= adjustedWidth) {
-        chosenIndex = idx;
-        if (adjustedWidth > 0 && prefixWidth > adjustedWidth) {
-          break;
-        }
-      }
+      indexes.push_back(idx);
     }
   }
 
-  if (chosenIndex == std::numeric_limits<size_t>::max()) {
-    return false;
+  if (indexes.empty()) {
+    return byteOffsets;
   }
 
-  const size_t splitByte = byteOffsetForIndex(cps, chosenIndex);
-  const std::string head = word.substr(0, splitByte);
-  const std::string tail = slice(word, splitByte, word.size());
+  std::sort(indexes.begin(), indexes.end());
+  indexes.erase(std::unique(indexes.begin(), indexes.end()), indexes.end());
 
-  if (head.empty() || tail.empty()) {
-    return false;
+  byteOffsets.reserve(indexes.size());
+  for (const size_t idx : indexes) {
+    byteOffsets.push_back(byteOffsetForIndex(cps, idx));
   }
 
-  // Append the printed hyphen to the prefix while leaving the tail untouched.
-  result->head = head + "-";
-  result->tail = tail;
-  return true;
+  return byteOffsets;
 }
