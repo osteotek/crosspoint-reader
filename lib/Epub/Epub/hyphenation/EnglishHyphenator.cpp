@@ -1,11 +1,12 @@
 #include "EnglishHyphenator.h"
-#include "HyphenationLiterals.h"
 
 #include <algorithm>
 #include <array>
 #include <initializer_list>
 #include <string>
 #include <vector>
+
+#include "HyphenationLiterals.h"
 
 namespace {
 
@@ -50,18 +51,15 @@ bool isEnglishFricativeChar(const char c) {
 
 using LatinLiteral = HyphenLiteralT<char>;
 
-constexpr std::array<LatinLiteral, 20> ENGLISH_PREFIXES = {{{"anti", 4},  {"auto", 4}, {"counter", 7}, {"de", 2},
-                                                            {"dis", 3},   {"hyper", 5}, {"inter", 5},   {"micro", 5},
-                                                            {"mis", 3},   {"mono", 4},  {"multi", 5},   {"non", 3},
-                                                            {"over", 4},  {"post", 4},  {"pre", 3},     {"pro", 3},
-                                                            {"re", 2},    {"sub", 3},   {"super", 5},   {"trans", 5}}};
+constexpr std::array<LatinLiteral, 20> ENGLISH_PREFIXES = {
+    {{"anti", 4},  {"auto", 4}, {"counter", 7}, {"de", 2},    {"dis", 3},   {"hyper", 5}, {"inter", 5},
+     {"micro", 5}, {"mis", 3},  {"mono", 4},    {"multi", 5}, {"non", 3},   {"over", 4},  {"post", 4},
+     {"pre", 3},   {"pro", 3},  {"re", 2},      {"sub", 3},   {"super", 5}, {"trans", 5}}};
 
-constexpr std::array<LatinLiteral, 24> ENGLISH_SUFFIXES = {{{"able", 4}, {"ible", 4}, {"ing", 3},  {"ings", 4},
-                                                            {"ed", 2},   {"er", 2},   {"ers", 3},  {"est", 3},
-                                                            {"ful", 3},  {"hood", 4}, {"less", 4}, {"lessly", 6},
-                                                            {"ly", 2},   {"ment", 4}, {"ments", 5},{"ness", 4},
-                                                            {"ous", 3},  {"tion", 4}, {"sion", 4}, {"ward", 4},
-                                                            {"wards", 5},{"ship", 4}, {"ships", 5},{"y", 1}}};
+constexpr std::array<LatinLiteral, 24> ENGLISH_SUFFIXES = {
+    {{"able", 4}, {"ible", 4}, {"ing", 3},  {"ings", 4},   {"ed", 2},    {"er", 2},   {"ers", 3},   {"est", 3},
+     {"ful", 3},  {"hood", 4}, {"less", 4}, {"lessly", 6}, {"ly", 2},    {"ment", 4}, {"ments", 5}, {"ness", 4},
+     {"ous", 3},  {"tion", 4}, {"sion", 4}, {"ward", 4},   {"wards", 5}, {"ship", 4}, {"ships", 5}, {"y", 1}}};
 
 bool nextToApostrophe(const std::vector<CodepointInfo>& cps, size_t index);
 
@@ -111,8 +109,9 @@ bool englishBreakAllowed(const std::vector<CodepointInfo>& cps, const size_t bre
 
 void appendMorphologyBreaks(const std::vector<CodepointInfo>& cps, const std::string& lowerWord,
                             std::vector<size_t>& indexes) {
-  appendLiteralBreaks(lowerWord, ENGLISH_PREFIXES, ENGLISH_SUFFIXES,
-                      [&](const size_t breakIndex) { return englishBreakAllowed(cps, breakIndex); }, indexes);
+  appendLiteralBreaks(
+      lowerWord, ENGLISH_PREFIXES, ENGLISH_SUFFIXES,
+      [&](const size_t breakIndex) { return englishBreakAllowed(cps, breakIndex); }, indexes);
 }
 
 struct CharPair {
@@ -313,8 +312,7 @@ std::vector<size_t> englishBreakIndexes(const std::vector<CodepointInfo>& cps) {
     const size_t rightVowel = vowelPositions[v + 1];
 
     if (rightVowel - leftVowel == 1) {
-      if (!isEnglishDiphthong(cps[leftVowel].value, cps[rightVowel].value) &&
-          englishBreakAllowed(cps, rightVowel)) {
+      if (!isEnglishDiphthong(cps[leftVowel].value, cps[rightVowel].value) && englishBreakAllowed(cps, rightVowel)) {
         indexes.push_back(rightVowel);
       }
       continue;

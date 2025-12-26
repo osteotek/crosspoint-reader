@@ -1,10 +1,11 @@
 #include "RussianHyphenator.h"
-#include "HyphenationLiterals.h"
 
 #include <algorithm>
 #include <array>
 #include <limits>
 #include <vector>
+
+#include "HyphenationLiterals.h"
 
 namespace {
 
@@ -23,10 +24,18 @@ constexpr uint32_t PFX_SAMO[4] = {0x0441, 0x0430, 0x043C, 0x043E};
 constexpr uint32_t PFX_OBO[3] = {0x043E, 0x0431, 0x043E};
 constexpr uint32_t PFX_PROTIV[6] = {0x043F, 0x0440, 0x043E, 0x0442, 0x0438, 0x0432};
 
-constexpr std::array<CyrillicLiteral, 12> RUSSIAN_PREFIXES = {{{PFX_BEZ, 3},   {PFX_RAZ, 3},  {PFX_POD, 3},
-                                                               {PFX_NAD, 3},   {PFX_PERE, 4}, {PFX_SVERH, 5},
-                                                               {PFX_MEZH, 3},  {PFX_SUPER, 5},{PFX_PRED, 4},
-                                                               {PFX_SAMO, 4},  {PFX_OBO, 3},  {PFX_PROTIV, 6}}};
+constexpr std::array<CyrillicLiteral, 12> RUSSIAN_PREFIXES = {{{PFX_BEZ, 3},
+                                                               {PFX_RAZ, 3},
+                                                               {PFX_POD, 3},
+                                                               {PFX_NAD, 3},
+                                                               {PFX_PERE, 4},
+                                                               {PFX_SVERH, 5},
+                                                               {PFX_MEZH, 3},
+                                                               {PFX_SUPER, 5},
+                                                               {PFX_PRED, 4},
+                                                               {PFX_SAMO, 4},
+                                                               {PFX_OBO, 3},
+                                                               {PFX_PROTIV, 6}}};
 
 constexpr uint32_t SFX_NOST[4] = {0x043D, 0x043E, 0x0441, 0x0442};
 constexpr uint32_t SFX_STVO[4] = {0x0441, 0x0442, 0x0432, 0x043E};
@@ -41,10 +50,18 @@ constexpr uint32_t SFX_ISM[3] = {0x0438, 0x0437, 0x043C};
 constexpr uint32_t SFX_LIV[5] = {0x043B, 0x0438, 0x0432, 0x044B, 0x0439};
 constexpr uint32_t SFX_OST[4] = {0x043E, 0x0441, 0x0442, 0x044C};
 
-constexpr std::array<CyrillicLiteral, 12> RUSSIAN_SUFFIXES = {{{SFX_NOST, 4}, {SFX_STVO, 4}, {SFX_ENIE, 4},
-                                                               {SFX_ATION, 4}, {SFX_CHIK, 3}, {SFX_NIK, 3},
-                                                               {SFX_TEL, 4},   {SFX_SKII, 4}, {SFX_AL, 6},
-                                                               {SFX_ISM, 3},   {SFX_LIV, 5}, {SFX_OST, 4}}};
+constexpr std::array<CyrillicLiteral, 12> RUSSIAN_SUFFIXES = {{{SFX_NOST, 4},
+                                                               {SFX_STVO, 4},
+                                                               {SFX_ENIE, 4},
+                                                               {SFX_ATION, 4},
+                                                               {SFX_CHIK, 3},
+                                                               {SFX_NIK, 3},
+                                                               {SFX_TEL, 4},
+                                                               {SFX_SKII, 4},
+                                                               {SFX_AL, 6},
+                                                               {SFX_ISM, 3},
+                                                               {SFX_LIV, 5},
+                                                               {SFX_OST, 4}}};
 
 std::vector<uint32_t> lowercaseCyrillicWord(const std::vector<CodepointInfo>& cps) {
   std::vector<uint32_t> lower;
@@ -308,8 +325,9 @@ bool nextToSoftSign(const std::vector<CodepointInfo>& cps, const size_t index) {
 
 void appendMorphologyBreaks(const std::vector<CodepointInfo>& cps, const std::vector<uint32_t>& lowerWord,
                             std::vector<size_t>& indexes) {
-  appendLiteralBreaks(lowerWord, RUSSIAN_PREFIXES, RUSSIAN_SUFFIXES,
-                      [&](const size_t breakIndex) { return russianBreakAllowed(cps, breakIndex); }, indexes);
+  appendLiteralBreaks(
+      lowerWord, RUSSIAN_PREFIXES, RUSSIAN_SUFFIXES,
+      [&](const size_t breakIndex) { return russianBreakAllowed(cps, breakIndex); }, indexes);
 }
 
 // Produces syllable break indexes tailored to Russian phonotactics.

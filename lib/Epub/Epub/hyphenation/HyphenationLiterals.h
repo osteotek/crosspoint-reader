@@ -30,8 +30,7 @@ bool matchesLiteralAt(const WordContainer& word, const size_t start, const Liter
 
 template <typename WordContainer, typename PrefixContainer, typename SuffixContainer, typename BreakAllowedFn>
 void appendLiteralBreaks(const WordContainer& lowerWord, const PrefixContainer& prefixes,
-                         const SuffixContainer& suffixes, BreakAllowedFn&& breakAllowed,
-                         std::vector<size_t>& indexes) {
+                         const SuffixContainer& suffixes, BreakAllowedFn&& breakAllowed, std::vector<size_t>& indexes) {
   const size_t length = lowerWord.size();
 
   const auto tryPush = [&](const size_t breakIndex) {
