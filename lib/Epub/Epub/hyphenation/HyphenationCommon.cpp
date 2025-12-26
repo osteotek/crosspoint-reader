@@ -92,7 +92,10 @@ bool isPunctuation(const uint32_t cp) {
   }
 }
 
-void trimTrailingPunctuation(std::vector<CodepointInfo>& cps) {
+void trimSurroundingPunctuation(std::vector<CodepointInfo>& cps) {
+  while (!cps.empty() && isPunctuation(cps.front().value)) {
+    cps.erase(cps.begin());
+  }
   while (!cps.empty() && isPunctuation(cps.back().value)) {
     cps.pop_back();
   }

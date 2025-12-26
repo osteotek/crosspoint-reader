@@ -48,6 +48,32 @@ std::vector<CodepointInfo> collectCodepoints(const std::string& word) {
   return cps;
 }
 
+bool isExplicitHyphen(const uint32_t cp) { return cp == '-' || cp == 0x2010; }
+
+std::vector<size_t> collectExplicitHyphenIndexes(const std::vector<CodepointInfo>& cps) {
+  std::vector<size_t> indexes;
+  for (size_t i = 0; i < cps.size(); ++i) {
+    if (!isExplicitHyphen(cps[i].value)) {
+      continue;
+    }
+    if (i == 0 || i + 1 >= cps.size()) {
+      continue;
+    }
+    if (!isAlphabetic(cps[i - 1].value) || !isAlphabetic(cps[i + 1].value)) {
+      continue;
+    }
+    const size_t breakIndex = i + 1;
+    if (breakIndex >= cps.size()) {
+      continue;
+    }
+    if (breakIndex == 0) {
+      continue;
+    }
+    indexes.push_back(breakIndex);
+  }
+  return indexes;
+}
+
 // Rejects words containing punctuation or digits unless forced.
 bool hasOnlyAlphabetic(const std::vector<CodepointInfo>& cps) {
   if (cps.empty()) {
@@ -93,9 +119,20 @@ std::vector<size_t> Hyphenator::breakOffsets(const std::string& word, const bool
   }
 
   auto cps = collectCodepoints(word);
-  trimTrailingPunctuation(cps);
+  trimSurroundingPunctuation(cps);
   if (cps.size() < MIN_PREFIX_CP + MIN_SUFFIX_CP) {
     return {};
+  }
+
+  if (auto explicitIndexes = collectExplicitHyphenIndexes(cps); !explicitIndexes.empty()) {
+    std::sort(explicitIndexes.begin(), explicitIndexes.end());
+    explicitIndexes.erase(std::unique(explicitIndexes.begin(), explicitIndexes.end()), explicitIndexes.end());
+    std::vector<size_t> byteOffsets;
+    byteOffsets.reserve(explicitIndexes.size());
+    for (const size_t idx : explicitIndexes) {
+      byteOffsets.push_back(byteOffsetForIndex(cps, idx));
+    }
+    return byteOffsets;
   }
 
   std::vector<size_t> indexes = hasOnlyAlphabetic(cps) ? collectBreakIndexes(cps) : std::vector<size_t>();
