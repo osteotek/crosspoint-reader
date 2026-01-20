@@ -30,6 +30,9 @@ constexpr float LINE_PENALTY_MULTIPLIER = 2.0f;       // Penalize extra lines (r
 constexpr float SHRINK_PENALTY_MULTIPLIER = 4.0f;     // Penalize space shrinking in justified text.
 constexpr float SHRINKABILITY = 1.0f / 3.0f;          // Max fraction of space width that can shrink.
 
+// Cap fallback breakpoints for very long words to keep DP cost predictable.
+constexpr size_t MAX_FALLBACK_BREAKPOINTS = 6;
+
 bool containsSoftHyphen(const std::string& word) { return word.find(SOFT_HYPHEN_UTF8) != std::string::npos; }
 
 // Removes every soft hyphen in-place so rendered glyphs match measured widths.
@@ -176,6 +179,19 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   std::vector<std::vector<Hyphenator::BreakInfo>> hyphenBreaksPerWord(totalWordCount);
   std::vector<std::vector<Hyphenator::BreakInfo>> fallbackBreaksPerWord(totalWordCount);
   size_t extraCandidateCount = 0;
+  auto downsampleBreaks = [](std::vector<Hyphenator::BreakInfo>& breaks, const size_t maxCount) {
+    if (breaks.size() <= maxCount) {
+      return;
+    }
+    std::vector<Hyphenator::BreakInfo> reduced;
+    reduced.reserve(maxCount);
+    const size_t last = breaks.size() - 1;
+    for (size_t slot = 0; slot < maxCount; ++slot) {
+      const size_t idx = (slot * last) / (maxCount - 1);
+      reduced.push_back(breaks[idx]);
+    }
+    breaks.swap(reduced);
+  };
   for (size_t i = 0; i < totalWordCount; ++i) {
     const std::string& word = *wordPtrs[i];
     if (hyphenationEnabled) {
@@ -184,6 +200,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     }
     if (wordWidths[i] > pageWidth && (!hyphenationEnabled || hyphenBreaksPerWord[i].empty())) {
       fallbackBreaksPerWord[i] = Hyphenator::breakOffsets(word, /*includeFallback=*/true);
+      downsampleBreaks(fallbackBreaksPerWord[i], MAX_FALLBACK_BREAKPOINTS);
       extraCandidateCount += fallbackBreaksPerWord[i].size();
     }
   }
