@@ -22,8 +22,8 @@ class ParsedText {
   void applyParagraphIndent();
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth, int spaceWidth,
                                         std::vector<uint16_t>& wordWidths);
-  std::vector<size_t> computeHyphenatedLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth,
-                                                  int spaceWidth, std::vector<uint16_t>& wordWidths);
+  bool splitWordAtIndex(size_t wordIndex, size_t byteOffset, bool insertHyphen, const GfxRenderer& renderer,
+                        int fontId, std::vector<uint16_t>& wordWidths);
   bool hyphenateWordAtIndex(size_t wordIndex, int availableWidth, const GfxRenderer& renderer, int fontId,
                             std::vector<uint16_t>& wordWidths, bool allowFallbackBreaks);
   void extractLine(size_t breakIndex, int pageWidth, int spaceWidth, const std::vector<uint16_t>& wordWidths,
