@@ -243,89 +243,85 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   pushBoundaryCandidate(0);
   for (size_t i = 0; i < totalWordCount; ++i) {
     const std::string& word = *wordPtrs[i];
-    const auto style = *stylePtrs[i];
-    const size_t wordSize = word.size();
-    std::vector<OptimalBreakCandidate> intraCandidates;
-    // Cache prefix widths by byte offset to avoid repeated substring measurement.
-    // Each entry stores {prefix width without hyphen, prefix width with hyphen}.
-    std::vector<std::pair<float, float>> prefixWidths(wordSize);
-    std::vector<uint8_t> prefixWidthValid(wordSize, 0);
-    std::string prefixScratch;
-    prefixScratch.reserve(wordSize);
-    auto getPrefixWidths = [&](const size_t offset) {
-      // Prefix width calculation is expensive; memoize per offset within the word.
-      // Offsets are byte offsets (matching hyphenation outputs), not codepoints.
-      if (offset < prefixWidthValid.size() && prefixWidthValid[offset]) {
-        return prefixWidths[offset];
-      }
-      // Reuse a single buffer to avoid allocations for every prefix.
-      prefixScratch.assign(word.data(), offset);
-      const float prefixNoHyphen = static_cast<float>(
-          measureWordWidth(renderer, fontId, prefixScratch, style, /*appendHyphen=*/false));
-      const float prefixWithHyphen =
-          static_cast<float>(measureWordWidth(renderer, fontId, prefixScratch, style, /*appendHyphen=*/true));
-      const std::pair<float, float> widths = {prefixNoHyphen, prefixWithHyphen};
-      // Store both widths so later candidates can reuse without re-measuring.
-      if (offset < prefixWidths.size()) {
-        prefixWidths[offset] = widths;
-        prefixWidthValid[offset] = 1;
-      }
-      return widths;
-    };
-
-    // Build intra-word candidates from breakInfos. This keeps the generation logic in one place
-    // while allowing different penalties.
-    auto appendIntraCandidates = [&](const std::vector<Hyphenator::BreakInfo>& breakInfos, const float penalty) {
-      for (const auto& info : breakInfos) {
-        if (info.byteOffset == 0 || info.byteOffset >= wordSize) {
-          continue;
-        }
-        const auto widths = getPrefixWidths(info.byteOffset);
-
-        // preBreak keeps the flowing width (no break); postBreak includes a visible hyphen if required.
-        // These two values let DP compute line width between any pair of candidates.
-        OptimalBreakCandidate candidate;
-        candidate.wordIndex = i;
-        candidate.byteOffset = info.byteOffset;
-        candidate.isHyphenation = true;
-        candidate.insertHyphen = info.requiresInsertedHyphen;
-        candidate.preBreak = baseCumulative[i] + widths.first;
-        candidate.postBreak =
-            baseCumulative[i] + (info.requiresInsertedHyphen ? widths.second : widths.first);
-        candidate.penalty = penalty;
-        candidate.preSpaceCount = spaceCounts[i];
-        candidate.postSpaceCount = spaceCounts[i];
-        intraCandidates.push_back(candidate);
-      }
-    };
-
-    // Cache the language hyphenation breakpoints once per word.
     const auto& hyphenBreaks = hyphenBreaksPerWord[i];
-    if (hyphenationEnabled && !hyphenBreaks.empty()) {
-      // Hyphenation candidates are inserted inside the current word and carry a hyphen penalty.
-      appendIntraCandidates(hyphenBreaks, hyphenPenalty);
-    }
+    const auto& fallbackBreaks = fallbackBreaksPerWord[i];
+    const bool hasHyphenCandidates = hyphenationEnabled && !hyphenBreaks.empty();
+    const bool hasFallbackCandidates = wordWidths[i] > pageWidth && !fallbackBreaks.empty();
 
-    if (wordWidths[i] > pageWidth) {
-      // Desperate candidates are sourced from hyphenation points with fallback enabled so that
-      // even language-unknown words can break if they don't fit on the line. They carry a large
-      // penalty so that DP prefers normal hyphenation or clean word breaks when possible.
-      const auto& fallbackBreaks = fallbackBreaksPerWord[i];
-      if (!fallbackBreaks.empty()) {
+    if (hasHyphenCandidates || hasFallbackCandidates) {
+      const auto style = *stylePtrs[i];
+      const size_t wordSize = word.size();
+      std::vector<OptimalBreakCandidate> intraCandidates;
+      // Cache prefix widths by byte offset to avoid repeated substring measurement.
+      // Each entry stores {prefix width without hyphen, prefix width with hyphen}.
+      std::vector<std::pair<float, float>> prefixWidths(wordSize);
+      std::vector<uint8_t> prefixWidthValid(wordSize, 0);
+      std::string prefixScratch;
+      prefixScratch.reserve(wordSize);
+      auto getPrefixWidths = [&](const size_t offset) {
+        // Prefix width calculation is expensive; memoize per offset within the word.
+        // Offsets are byte offsets (matching hyphenation outputs), not codepoints.
+        if (offset < prefixWidthValid.size() && prefixWidthValid[offset]) {
+          return prefixWidths[offset];
+        }
+        // Reuse a single buffer to avoid allocations for every prefix.
+        prefixScratch.assign(word.data(), offset);
+        const float prefixNoHyphen = static_cast<float>(
+            measureWordWidth(renderer, fontId, prefixScratch, style, /*appendHyphen=*/false));
+        const float prefixWithHyphen =
+            static_cast<float>(measureWordWidth(renderer, fontId, prefixScratch, style, /*appendHyphen=*/true));
+        const std::pair<float, float> widths = {prefixNoHyphen, prefixWithHyphen};
+        // Store both widths so later candidates can reuse without re-measuring.
+        if (offset < prefixWidths.size()) {
+          prefixWidths[offset] = widths;
+          prefixWidthValid[offset] = 1;
+        }
+        return widths;
+      };
+
+      // Build intra-word candidates from breakInfos. This keeps the generation logic in one place
+      // while allowing different penalties.
+      auto appendIntraCandidates = [&](const std::vector<Hyphenator::BreakInfo>& breakInfos, const float penalty) {
+        for (const auto& info : breakInfos) {
+          if (info.byteOffset == 0 || info.byteOffset >= wordSize) {
+            continue;
+          }
+          const auto widths = getPrefixWidths(info.byteOffset);
+
+          // preBreak keeps the flowing width (no break); postBreak includes a visible hyphen if required.
+          // These two values let DP compute line width between any pair of candidates.
+          OptimalBreakCandidate candidate;
+          candidate.wordIndex = i;
+          candidate.byteOffset = info.byteOffset;
+          candidate.isHyphenation = true;
+          candidate.insertHyphen = info.requiresInsertedHyphen;
+          candidate.preBreak = baseCumulative[i] + widths.first;
+          candidate.postBreak =
+              baseCumulative[i] + (info.requiresInsertedHyphen ? widths.second : widths.first);
+          candidate.penalty = penalty;
+          candidate.preSpaceCount = spaceCounts[i];
+          candidate.postSpaceCount = spaceCounts[i];
+          intraCandidates.push_back(candidate);
+        }
+      };
+
+      if (hasHyphenCandidates) {
+        // Hyphenation candidates are inserted inside the current word and carry a hyphen penalty.
+        appendIntraCandidates(hyphenBreaks, hyphenPenalty);
+      }
+
+      if (hasFallbackCandidates) {
+        // Desperate candidates are sourced from hyphenation points with fallback enabled so that
+        // even language-unknown words can break if they don't fit on the line. They carry a large
+        // penalty so that DP prefers normal hyphenation or clean word breaks when possible.
         appendIntraCandidates(fallbackBreaks, SCORE_DESPERATE);
       }
-    }
 
-    if (!intraCandidates.empty()) {
       // Hyphenator returns offsets in ascending order, so we can append without extra sorting.
       // This preserves monotonic width assumptions used by the DP.
       candidates.insert(candidates.end(), intraCandidates.begin(), intraCandidates.end());
     }
     pushBoundaryCandidate(i + 1);
-  }
-
-  if (candidates.size() < 2) {
-    return {totalWordCount};
   }
 
   const size_t candidateCount = candidates.size();
@@ -346,23 +342,23 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     float best = SCORE_INFTY;
     size_t bestPrev = 0;
 
-    // The left edge represents the target line start for this candidate.
     // Any candidate "j" before it will define a line whose width is:
     // candidates[i].postBreak - candidates[j].preBreak.
-    float leftEdge = candidates[i].postBreak - pageWidthF;
-    float bestHope = 0.0f;
+    // Lower bound for widthScore of the remaining candidates (monotonicity heuristic).
+    float bestLowerBound = 0.0f;
 
     // "j" iterates candidates for the beginning of the line, starting at the active window.
     for (size_t j = active; j < i; ++j) {
       const float jScore = breaksData[j].score;
-      if (jScore + bestHope >= best) {
+      if (jScore + bestLowerBound >= best) {
         // If this start cannot beat the best score, skip it.
         continue;
       }
 
-      // delta is the difference between actual line width and target width.
+      // delta is the difference between target width and actual line width.
       // Positive delta means the line is underfull; negative means overfull.
-      float delta = candidates[j].preBreak - leftEdge;
+      const float lineWidth = candidates[i].postBreak - candidates[j].preBreak;
+      const float delta = pageWidthF - lineWidth;
       float widthScore = 0.0f;
       float additionalPenalty = 0.0f;
 
@@ -397,8 +393,8 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
       if (delta < 0.0f) {
         active = j + 1;
       } else {
-        // bestHope optimization assumes widthScore grows monotonically for non-negative delta.
-        bestHope = widthScore;
+        // bestLowerBound assumes widthScore grows monotonically for non-negative delta.
+        bestLowerBound = widthScore;
       }
 
       const float score = jScore + widthScore + additionalPenalty;
