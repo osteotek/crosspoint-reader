@@ -19,6 +19,34 @@ class ParsedText {
   bool extraParagraphSpacing;
   bool hyphenationEnabled;
 
+  // Simplified Minikin-style break candidate over a word-based layout model.
+  // Each candidate represents either a word boundary or a hyphenation point.
+  struct OptimalBreakCandidate {
+    size_t wordIndex;     // Index in the current words list where the candidate belongs.
+    size_t byteOffset;    // Byte offset inside the word if this is a hyphenation candidate.
+    bool isHyphenation;   // True when this candidate splits within a word (hyphenation or desperate).
+    bool insertHyphen;    // True when we should append a visible '-' to the prefix.
+    float preBreak;       // Width of text before this candidate (without breaking here).
+    float postBreak;      // Width of text if we break here (may include hyphen width).
+    float penalty;        // Penalty for taking this break (hyphenation penalty).
+    int preSpaceCount;    // Spaces before this break, used for shrink calculations.
+    int postSpaceCount;   // Spaces after this break, used for shrink calculations.
+  };
+
+  // DP state for optimal line breaks.
+  struct OptimalBreakData {
+    float score;       // Best score up to this candidate.
+    size_t prev;       // Index of previous candidate in the optimal path.
+    size_t lineNumber; // Computed line number at this candidate.
+  };
+
+  // Scratch buffers reused across layout passes to reduce allocations.
+  std::vector<OptimalBreakCandidate> candidatesScratch;
+  std::vector<OptimalBreakData> breaksDataScratch;
+  std::vector<size_t> breakCandidateIndicesScratch;
+  std::vector<size_t> lineBreakIndicesScratch;
+  std::vector<size_t> consumedOffsetsScratch;
+
   void applyParagraphIndent();
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth, int spaceWidth,
                                         std::vector<uint16_t>& wordWidths);
