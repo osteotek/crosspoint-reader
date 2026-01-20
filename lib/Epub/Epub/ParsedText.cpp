@@ -121,13 +121,18 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
   // Minikin-style algorithm overview:
   // 1) Build a linear list of break candidates (word boundaries + intra-word breaks).
+  //    Each candidate stores cumulative widths before/after the break to make
+  //    line width computation O(1) during the DP step.
   // 2) Use dynamic programming to find the lowest-cost path through candidates.
+  //    The cost mixes raggedness (distance from page width), hyphen penalties,
+  //    and a per-line penalty for non-justified paragraphs.
   // 3) Apply any chosen intra-word splits to our word list, then emit line break indices.
   //
-  // Oversized words are handled by desperate break candidates added during candidate generation.
+  // Oversized words are handled by "desperate" break candidates inserted during
+  // candidate generation (fallback hyphenation points with large penalties).
 
-  // Use pointer views to avoid copying the word and style lists.
-  // The underlying lists stay stable during candidate generation.
+  // Use pointer views to avoid copying the word and style lists. The underlying
+  // lists stay stable during candidate generation, so pointers remain valid.
   std::vector<const std::string*> wordPtrs;
   wordPtrs.reserve(words.size());
   for (const auto& word : words) {
@@ -180,6 +185,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   std::vector<std::vector<Hyphenator::BreakInfo>> fallbackBreaksPerWord(totalWordCount);
   size_t extraCandidateCount = 0;
   auto downsampleBreaks = [](std::vector<Hyphenator::BreakInfo>& breaks, const size_t maxCount) {
+    // Cap candidate density to keep the DP cost predictable for very long words.
     if (breaks.size() <= maxCount) {
       return;
     }
@@ -199,6 +205,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
       extraCandidateCount += hyphenBreaksPerWord[i].size();
     }
     if (wordWidths[i] > pageWidth && (!hyphenationEnabled || hyphenBreaksPerWord[i].empty())) {
+      // Oversized words with no language hyphenation get fallback breakpoints.
       fallbackBreaksPerWord[i] = Hyphenator::breakOffsets(word, /*includeFallback=*/true);
       downsampleBreaks(fallbackBreaksPerWord[i], MAX_FALLBACK_BREAKPOINTS);
       extraCandidateCount += fallbackBreaksPerWord[i].size();
@@ -247,6 +254,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     prefixScratch.reserve(wordSize);
     auto getPrefixWidths = [&](const size_t offset) {
       // Prefix width calculation is expensive; memoize per offset within the word.
+      // Offsets are byte offsets (matching hyphenation outputs), not codepoints.
       if (offset < prefixWidthValid.size() && prefixWidthValid[offset]) {
         return prefixWidths[offset];
       }
@@ -328,6 +336,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   // The first candidate always begins the first line.
   breaksData.push_back({0.0f, 0, 0});
 
+  // "active" tracks the earliest viable start candidate for the current line.
   size_t active = 0;
   const float maxShrink = justified ? SHRINKABILITY * spaceWidthF : 0.0f;
 
@@ -347,6 +356,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     for (size_t j = active; j < i; ++j) {
       const float jScore = breaksData[j].score;
       if (jScore + bestHope >= best) {
+        // If this start cannot beat the best score, skip it.
         continue;
       }
 
