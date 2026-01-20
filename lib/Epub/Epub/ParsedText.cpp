@@ -8,6 +8,7 @@
 #include <iterator>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "hyphenation/Hyphenator.h"
@@ -20,6 +21,7 @@ constexpr size_t SOFT_HYPHEN_BYTES = 2;
 
 constexpr float SCORE_INFTY = std::numeric_limits<float>::max();
 constexpr float SCORE_OVERFULL = 1e12f;
+constexpr float SCORE_DESPERATE = 1e10f;
 constexpr float LAST_LINE_PENALTY_MULTIPLIER = 4.0f;
 constexpr float LINE_PENALTY_MULTIPLIER = 2.0f;
 constexpr float SHRINK_PENALTY_MULTIPLIER = 4.0f;
@@ -58,7 +60,7 @@ uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const s
 struct OptimalBreakCandidate {
   size_t wordIndex;     // Index in the current words list where the candidate belongs.
   size_t byteOffset;    // Byte offset inside the word if this is a hyphenation candidate.
-  bool isHyphenation;   // True when this candidate splits within a word.
+  bool isHyphenation;   // True when this candidate splits within a word (hyphenation or desperate).
   bool insertHyphen;    // True when we should append a visible '-' to the prefix.
   float preBreak;       // Width of text before this candidate (without breaking here).
   float postBreak;      // Width of text if we break here (may include hyphen width).
@@ -130,14 +132,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     return {};
   }
 
-  // Ensure any word that would overflow even as the first entry on a line is split using fallback hyphenation.
-  for (size_t i = 0; i < wordWidths.size(); ++i) {
-    while (wordWidths[i] > pageWidth) {
-      if (!hyphenateWordAtIndex(i, pageWidth, renderer, fontId, wordWidths, /*allowFallbackBreaks=*/true)) {
-        break;
-      }
-    }
-  }
+  // Oversized words are handled by desperate break candidates added during candidate generation.
 
   std::vector<std::string> wordVec(words.begin(), words.end());
   std::vector<EpdFontFamily::Style> styleVec(wordStyles.begin(), wordStyles.end());
@@ -146,7 +141,8 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     return {};
   }
 
-  // Precompute cumulative widths assuming a single space between words.
+  // Precompute cumulative widths assuming a single space between words. This mirrors Minikin's
+  // use of preBreak/postBreak so we can compute line widths by subtraction.
   std::vector<float> baseCumulative(totalWordCount + 1, 0.0f);
   for (size_t i = 0; i < totalWordCount; ++i) {
     baseCumulative[i + 1] = baseCumulative[i] + static_cast<float>(wordWidths[i]);
@@ -155,14 +151,14 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     }
   }
 
-  // Track the number of spaces before each word boundary for shrink penalties.
+  // Track the number of spaces before each word boundary for shrink penalties (justified text).
   std::vector<int> spaceCounts(totalWordCount + 1, 0);
   for (size_t i = 0; i < totalWordCount; ++i) {
     spaceCounts[i] = static_cast<int>(i);
   }
   spaceCounts[totalWordCount] = static_cast<int>(totalWordCount - 1);
 
-  // Translate minikin penalty model into our word-based width units.
+  // Translate Minikin penalty model into our word-based width units.
   const bool justified = style == TextBlock::JUSTIFIED;
   const float spaceWidthF = static_cast<float>(spaceWidth);
   const float pageWidthF = static_cast<float>(pageWidth);
@@ -172,7 +168,8 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   }
   const float linePenalty = justified ? 0.0f : hyphenPenalty * LINE_PENALTY_MULTIPLIER;
 
-  // Build the candidate list in reading order. The DP expects monotonic widths.
+  // Build the candidate list in reading order. The DP expects monotonic widths so that
+  // subtracting preBreak from postBreak yields line widths.
   std::vector<OptimalBreakCandidate> candidates;
   candidates.reserve(totalWordCount * 2 + 1);
 
@@ -198,39 +195,67 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
   pushBoundaryCandidate(0);
   for (size_t i = 0; i < totalWordCount; ++i) {
+    std::vector<OptimalBreakCandidate> intraCandidates;
+    std::unordered_set<size_t> hyphenOffsets;
+
+    // Build intra-word candidates from breakInfos, optionally skipping offsets already covered.
+    auto appendIntraCandidates = [&](const std::vector<Hyphenator::BreakInfo>& breakInfos, const float penalty,
+                                     const std::unordered_set<size_t>* skipOffsets) {
+      for (const auto& info : breakInfos) {
+        if (info.byteOffset == 0 || info.byteOffset >= wordVec[i].size()) {
+          continue;
+        }
+        if (skipOffsets && skipOffsets->count(info.byteOffset) != 0) {
+          continue;
+        }
+        const std::string prefix = wordVec[i].substr(0, info.byteOffset);
+        const float prefixNoHyphen = static_cast<float>(
+            measureWordWidth(renderer, fontId, prefix, styleVec[i], /*appendHyphen=*/false));
+        const float prefixWithHyphen = static_cast<float>(
+            measureWordWidth(renderer, fontId, prefix, styleVec[i], info.requiresInsertedHyphen));
+
+        // preBreak keeps the flowing width (no break); postBreak includes a visible hyphen if required.
+        OptimalBreakCandidate candidate;
+        candidate.wordIndex = i;
+        candidate.byteOffset = info.byteOffset;
+        candidate.isHyphenation = true;
+        candidate.insertHyphen = info.requiresInsertedHyphen;
+        candidate.preBreak = baseCumulative[i] + prefixNoHyphen;
+        candidate.postBreak = baseCumulative[i] + prefixWithHyphen;
+        candidate.penalty = penalty;
+        candidate.preSpaceCount = spaceCounts[i];
+        candidate.postSpaceCount = spaceCounts[i];
+        intraCandidates.push_back(candidate);
+      }
+    };
+
     if (hyphenationEnabled) {
       // Hyphenation candidates are inserted inside the current word.
       auto breakInfos = Hyphenator::breakOffsets(wordVec[i], /*includeFallback=*/false);
       if (!breakInfos.empty()) {
-        std::sort(breakInfos.begin(), breakInfos.end(),
-                  [](const Hyphenator::BreakInfo& a, const Hyphenator::BreakInfo& b) {
-                    return a.byteOffset < b.byteOffset;
-                  });
         for (const auto& info : breakInfos) {
-          if (info.byteOffset == 0 || info.byteOffset >= wordVec[i].size()) {
-            continue;
-          }
-          const std::string prefix = wordVec[i].substr(0, info.byteOffset);
-          const float prefixNoHyphen = static_cast<float>(
-              measureWordWidth(renderer, fontId, prefix, styleVec[i], /*appendHyphen=*/false));
-          const float prefixWithHyphen = static_cast<float>(
-              measureWordWidth(renderer, fontId, prefix, styleVec[i], info.requiresInsertedHyphen));
-
-          // preBreak represents the text width if we keep flowing past this point.
-          // postBreak represents the text width if we actually break here.
-          OptimalBreakCandidate candidate;
-          candidate.wordIndex = i;
-          candidate.byteOffset = info.byteOffset;
-          candidate.isHyphenation = true;
-          candidate.insertHyphen = info.requiresInsertedHyphen;
-          candidate.preBreak = baseCumulative[i] + prefixNoHyphen;
-          candidate.postBreak = baseCumulative[i] + prefixWithHyphen;
-          candidate.penalty = hyphenPenalty;
-          candidate.preSpaceCount = spaceCounts[i];
-          candidate.postSpaceCount = spaceCounts[i];
-          candidates.push_back(candidate);
+          hyphenOffsets.insert(info.byteOffset);
         }
+        appendIntraCandidates(breakInfos, hyphenPenalty, /*skipOffsets=*/nullptr);
       }
+    }
+
+    if (wordWidths[i] > pageWidth) {
+      // Desperate candidates are sourced from hyphenation points with fallback enabled so that
+      // even language-unknown words can break if they don't fit on the line.
+      auto breakInfos = Hyphenator::breakOffsets(wordVec[i], /*includeFallback=*/true);
+      appendIntraCandidates(breakInfos, SCORE_DESPERATE, hyphenationEnabled ? &hyphenOffsets : nullptr);
+    }
+
+    if (!intraCandidates.empty()) {
+      std::sort(intraCandidates.begin(), intraCandidates.end(),
+                [](const OptimalBreakCandidate& a, const OptimalBreakCandidate& b) {
+                  if (a.byteOffset != b.byteOffset) {
+                    return a.byteOffset < b.byteOffset;
+                  }
+                  return a.postBreak < b.postBreak;
+                });
+      candidates.insert(candidates.end(), intraCandidates.begin(), intraCandidates.end());
     }
     pushBoundaryCandidate(i + 1);
   }
@@ -248,6 +273,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   size_t active = 0;
   const float maxShrink = justified ? SHRINKABILITY * spaceWidthF : 0.0f;
 
+  // "i" iterates candidates for the end of the line.
   for (size_t i = 1; i < candidateCount; ++i) {
     const bool atEnd = i == candidateCount - 1;
     float best = SCORE_INFTY;
@@ -257,7 +283,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     float leftEdge = candidates[i].postBreak - pageWidthF;
     float bestHope = 0.0f;
 
-    // Scan possible starts of the line from the active window.
+    // "j" iterates candidates for the beginning of the line, starting at the active window.
     for (size_t j = active; j < i; ++j) {
       const float jScore = breaksData[j].score;
       if (jScore + bestHope >= best) {
@@ -289,10 +315,11 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
         }
       }
 
-      // Update the active window when we are already overfull.
+      // Update the active window when we are already overfull to skip hopeless starts.
       if (delta < 0.0f) {
         active = j + 1;
       } else {
+        // bestHope optimization assumes widthScore grows monotonically for non-negative delta.
         bestHope = widthScore;
       }
 
@@ -360,10 +387,10 @@ void ParsedText::applyParagraphIndent() {
   }
 }
 
-bool ParsedText::splitWordAtIndex(const size_t wordIndex, const size_t byteOffset, const bool insertHyphen,
+bool ParsedText::splitWordAtIndex(const size_t wordIndex, size_t splitByteOffset, bool insertHyphen,
                                   const GfxRenderer& renderer, const int fontId,
                                   std::vector<uint16_t>& wordWidths) {
-  // This is the low-level split used by the optimal breaker when a hyphenation candidate is chosen.
+  // This helper applies an explicit split chosen by the optimal breaker.
   if (wordIndex >= words.size()) {
     return false;
   }
@@ -373,13 +400,16 @@ bool ParsedText::splitWordAtIndex(const size_t wordIndex, const size_t byteOffse
   std::advance(wordIt, wordIndex);
   std::advance(styleIt, wordIndex);
 
-  if (byteOffset == 0 || byteOffset >= wordIt->size()) {
+  const std::string& word = *wordIt;
+  const auto style = *styleIt;
+
+  if (splitByteOffset >= word.size()) {
     return false;
   }
 
   // Split the word into prefix and remainder and insert a visible hyphen if requested.
-  std::string remainder = wordIt->substr(byteOffset);
-  wordIt->resize(byteOffset);
+  std::string remainder = word.substr(splitByteOffset);
+  wordIt->resize(splitByteOffset);
   if (insertHyphen) {
     wordIt->push_back('-');
   }
@@ -387,82 +417,10 @@ bool ParsedText::splitWordAtIndex(const size_t wordIndex, const size_t byteOffse
   auto insertWordIt = std::next(wordIt);
   auto insertStyleIt = std::next(styleIt);
   words.insert(insertWordIt, remainder);
-  wordStyles.insert(insertStyleIt, *styleIt);
-
-  // Update cached widths for both fragments to keep later layout consistent.
-  wordWidths[wordIndex] = measureWordWidth(renderer, fontId, *wordIt, *styleIt);
-  const uint16_t remainderWidth = measureWordWidth(renderer, fontId, remainder, *styleIt);
-  wordWidths.insert(wordWidths.begin() + wordIndex + 1, remainderWidth);
-  return true;
-}
-
-// Splits words[wordIndex] into prefix (adding a hyphen only when needed) and remainder when a legal breakpoint fits the
-// available width.
-bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availableWidth, const GfxRenderer& renderer,
-                                      const int fontId, std::vector<uint16_t>& wordWidths,
-                                      const bool allowFallbackBreaks) {
-  // Guard against invalid indices or zero available width before attempting to split.
-  if (availableWidth <= 0 || wordIndex >= words.size()) {
-    return false;
-  }
-
-  // Get iterators to target word and style.
-  auto wordIt = words.begin();
-  auto styleIt = wordStyles.begin();
-  std::advance(wordIt, wordIndex);
-  std::advance(styleIt, wordIndex);
-
-  const std::string& word = *wordIt;
-  const auto style = *styleIt;
-
-  // Collect candidate breakpoints (byte offsets and hyphen requirements).
-  auto breakInfos = Hyphenator::breakOffsets(word, allowFallbackBreaks);
-  if (breakInfos.empty()) {
-    return false;
-  }
-
-  size_t chosenOffset = 0;
-  int chosenWidth = -1;
-  bool chosenNeedsHyphen = true;
-
-  // Iterate over each legal breakpoint and retain the widest prefix that still fits.
-  for (const auto& info : breakInfos) {
-    const size_t offset = info.byteOffset;
-    if (offset == 0 || offset >= word.size()) {
-      continue;
-    }
-
-    const bool needsHyphen = info.requiresInsertedHyphen;
-    const int prefixWidth = measureWordWidth(renderer, fontId, word.substr(0, offset), style, needsHyphen);
-    if (prefixWidth > availableWidth || prefixWidth <= chosenWidth) {
-      continue;  // Skip if too wide or not an improvement
-    }
-
-    chosenWidth = prefixWidth;
-    chosenOffset = offset;
-    chosenNeedsHyphen = needsHyphen;
-  }
-
-  if (chosenWidth < 0) {
-    // No hyphenation point produced a prefix that fits in the remaining space.
-    return false;
-  }
-
-  // Split the word at the selected breakpoint and append a hyphen if required.
-  std::string remainder = word.substr(chosenOffset);
-  wordIt->resize(chosenOffset);
-  if (chosenNeedsHyphen) {
-    wordIt->push_back('-');
-  }
-
-  // Insert the remainder word (with matching style) directly after the prefix.
-  auto insertWordIt = std::next(wordIt);
-  auto insertStyleIt = std::next(styleIt);
-  words.insert(insertWordIt, remainder);
   wordStyles.insert(insertStyleIt, style);
 
-  // Update cached widths to reflect the new prefix/remainder pairing.
-  wordWidths[wordIndex] = static_cast<uint16_t>(chosenWidth);
+  // Update cached widths for both fragments to keep later layout consistent.
+  wordWidths[wordIndex] = measureWordWidth(renderer, fontId, *wordIt, style);
   const uint16_t remainderWidth = measureWordWidth(renderer, fontId, remainder, style);
   wordWidths.insert(wordWidths.begin() + wordIndex + 1, remainderWidth);
   return true;
