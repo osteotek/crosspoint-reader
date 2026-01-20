@@ -130,6 +130,16 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   //
   // Oversized words are handled by "desperate" break candidates inserted during
   // candidate generation (fallback hyphenation points with large penalties).
+  //
+  // Key data model notes:
+  // - The layout unit is a "word", not a glyph run. We treat a paragraph as a sequence
+  //   of words separated by single spaces, then insert intra-word candidates for hyphenation.
+  // - Each candidate stores two cumulative widths:
+  //     preBreak: how far the text has advanced if we *do not* break here.
+  //     postBreak: how far the text advances if we *do* break here (may include hyphen).
+  //   This mirrors Minikin's pre/post break widths and lets us compute a line width by
+  //   simple subtraction: candidates[i].postBreak - candidates[j].preBreak.
+  // - The DP state stores the best score to reach each candidate, plus a back-pointer.
 
   // Use pointer views to avoid copying the word and style lists. The underlying
   // lists stay stable during candidate generation, so pointers remain valid.
@@ -240,6 +250,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     candidates.push_back(candidate);
   };
 
+  // Candidate 0 is a synthetic "paragraph start" boundary.
   pushBoundaryCandidate(0);
   for (size_t i = 0; i < totalWordCount; ++i) {
     const std::string& word = *wordPtrs[i];
@@ -348,6 +359,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     float bestLowerBound = 0.0f;
 
     // "j" iterates candidates for the beginning of the line, starting at the active window.
+    // This is the O(n^2) core of the algorithm, pruned by "active" and "bestLowerBound".
     for (size_t j = active; j < i; ++j) {
       const float jScore = breaksData[j].score;
       if (jScore + bestLowerBound >= best) {
