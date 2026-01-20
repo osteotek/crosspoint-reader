@@ -132,6 +132,11 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     return {};
   }
 
+  // Minikin-style algorithm overview:
+  // 1) Build a linear list of break candidates (word boundaries + intra-word breaks).
+  // 2) Use dynamic programming to find the lowest-cost path through candidates.
+  // 3) Apply any chosen intra-word splits to our word list, then emit line break indices.
+  //
   // Oversized words are handled by desperate break candidates added during candidate generation.
 
   std::vector<std::string> wordVec(words.begin(), words.end());
@@ -142,7 +147,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   }
 
   // Precompute cumulative widths assuming a single space between words. This mirrors Minikin's
-  // use of preBreak/postBreak so we can compute line widths by subtraction.
+  // use of preBreak/postBreak so we can compute line widths by subtraction and avoid O(n^2) sums.
   std::vector<float> baseCumulative(totalWordCount + 1, 0.0f);
   for (size_t i = 0; i < totalWordCount; ++i) {
     baseCumulative[i + 1] = baseCumulative[i] + static_cast<float>(wordWidths[i]);
@@ -152,6 +157,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   }
 
   // Track the number of spaces before each word boundary for shrink penalties (justified text).
+  // The counts map line widths to how many spaces could be shrunk if the line is overfull.
   std::vector<int> spaceCounts(totalWordCount + 1, 0);
   for (size_t i = 0; i < totalWordCount; ++i) {
     spaceCounts[i] = static_cast<int>(i);
@@ -159,6 +165,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   spaceCounts[totalWordCount] = static_cast<int>(totalWordCount - 1);
 
   // Translate Minikin penalty model into our word-based width units.
+  // This sets the relative cost of hyphenation and extra lines.
   const bool justified = style == TextBlock::JUSTIFIED;
   const float spaceWidthF = static_cast<float>(spaceWidth);
   const float pageWidthF = static_cast<float>(pageWidth);
@@ -170,6 +177,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
   // Build the candidate list in reading order. The DP expects monotonic widths so that
   // subtracting preBreak from postBreak yields line widths.
+  // Each candidate captures how far we've advanced in the paragraph at that breakpoint.
   std::vector<OptimalBreakCandidate> candidates;
   candidates.reserve(totalWordCount * 2 + 1);
 
@@ -196,9 +204,12 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   pushBoundaryCandidate(0);
   for (size_t i = 0; i < totalWordCount; ++i) {
     std::vector<OptimalBreakCandidate> intraCandidates;
+    // Track intra-word offsets already used by standard hyphenation so we can avoid
+    // duplicating them as "desperate" breakpoints with a different penalty.
     std::unordered_set<size_t> hyphenOffsets;
 
     // Build intra-word candidates from breakInfos, optionally skipping offsets already covered.
+    // This keeps the generation logic in one place while allowing different penalties.
     auto appendIntraCandidates = [&](const std::vector<Hyphenator::BreakInfo>& breakInfos, const float penalty,
                                      const std::unordered_set<size_t>* skipOffsets) {
       for (const auto& info : breakInfos) {
@@ -215,6 +226,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
             measureWordWidth(renderer, fontId, prefix, styleVec[i], info.requiresInsertedHyphen));
 
         // preBreak keeps the flowing width (no break); postBreak includes a visible hyphen if required.
+        // These two values let DP compute line width between any pair of candidates.
         OptimalBreakCandidate candidate;
         candidate.wordIndex = i;
         candidate.byteOffset = info.byteOffset;
@@ -230,7 +242,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     };
 
     if (hyphenationEnabled) {
-      // Hyphenation candidates are inserted inside the current word.
+      // Hyphenation candidates are inserted inside the current word and carry a hyphen penalty.
       auto breakInfos = Hyphenator::breakOffsets(wordVec[i], /*includeFallback=*/false);
       if (!breakInfos.empty()) {
         for (const auto& info : breakInfos) {
@@ -242,12 +254,14 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
     if (wordWidths[i] > pageWidth) {
       // Desperate candidates are sourced from hyphenation points with fallback enabled so that
-      // even language-unknown words can break if they don't fit on the line.
+      // even language-unknown words can break if they don't fit on the line. They carry a large
+      // penalty so that DP prefers normal hyphenation or clean word breaks when possible.
       auto breakInfos = Hyphenator::breakOffsets(wordVec[i], /*includeFallback=*/true);
       appendIntraCandidates(breakInfos, SCORE_DESPERATE, hyphenationEnabled ? &hyphenOffsets : nullptr);
     }
 
     if (!intraCandidates.empty()) {
+      // Sort by byte offset to keep candidate widths monotonic, then stable-tie by width.
       std::sort(intraCandidates.begin(), intraCandidates.end(),
                 [](const OptimalBreakCandidate& a, const OptimalBreakCandidate& b) {
                   if (a.byteOffset != b.byteOffset) {
@@ -280,6 +294,8 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     size_t bestPrev = 0;
 
     // The left edge represents the target line start for this candidate.
+    // Any candidate "j" before it will define a line whose width is:
+    // candidates[i].postBreak - candidates[j].preBreak.
     float leftEdge = candidates[i].postBreak - pageWidthF;
     float bestHope = 0.0f;
 
@@ -291,6 +307,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
       }
 
       // delta is the difference between actual line width and target width.
+      // Positive delta means the line is underfull; negative means overfull.
       float delta = candidates[j].preBreak - leftEdge;
       float widthScore = 0.0f;
       float additionalPenalty = 0.0f;
@@ -302,6 +319,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
         // Encourage fewer hyphens on the final line.
         additionalPenalty = LAST_LINE_PENALTY_MULTIPLIER * candidates[j].penalty;
       } else {
+        // Quadratic penalty favors lines closer to the target width.
         widthScore = delta * delta;
         if (delta < 0.0f) {
           const float shrinkLimit =
@@ -336,6 +354,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   }
 
   // Walk the optimal path from the end to collect chosen candidate indices.
+  // The path is stored by "prev" links in the DP table.
   std::vector<size_t> breakCandidateIndices;
   for (size_t i = candidateCount - 1; i > 0; i = breaksData[i].prev) {
     breakCandidateIndices.push_back(i);
@@ -343,6 +362,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   std::reverse(breakCandidateIndices.begin(), breakCandidateIndices.end());
 
   // Apply hyphenation splits that were chosen by the optimal path and translate to break indices.
+  // This mutates the words list, so we track index shifts and already-consumed offsets.
   std::vector<size_t> lineBreakIndices;
   lineBreakIndices.reserve(breakCandidateIndices.size());
   size_t indexShift = 0;
