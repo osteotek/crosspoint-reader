@@ -29,6 +29,7 @@ constexpr float LAST_LINE_PENALTY_MULTIPLIER = 4.0f;  // Penalize hyphens on the
 constexpr float LINE_PENALTY_MULTIPLIER = 2.0f;       // Penalize extra lines (ragged text).
 constexpr float SHRINK_PENALTY_MULTIPLIER = 4.0f;     // Penalize space shrinking in justified text.
 constexpr float SHRINKABILITY = 1.0f / 3.0f;          // Max fraction of space width that can shrink.
+constexpr float JUSTIFIED_HYPHEN_PENALTY = 2.0f;      // Penalty for hyphens in justified text.
 
 // Cap fallback breakpoints for very long words to keep DP cost predictable.
 constexpr size_t MAX_FALLBACK_BREAKPOINTS = 6;
@@ -185,7 +186,8 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   const float pageWidthF = static_cast<float>(pageWidth);
   float hyphenPenalty = 0.5f * std::max(spaceWidthF, 1.0f) * pageWidthF;
   if (justified) {
-    hyphenPenalty *= 0.25f;
+    // hyphenPenalty *= 0.25f;
+    hyphenPenalty *= JUSTIFIED_HYPHEN_PENALTY;
   }
   const float linePenalty = justified ? 0.0f : hyphenPenalty * LINE_PENALTY_MULTIPLIER;
 
