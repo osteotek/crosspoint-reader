@@ -41,6 +41,7 @@ const std::vector<LanguageConfig> kSupportedLanguages = {
     {"english", "test/hyphenation_eval/resources/english_hyphenation_tests.txt", "en"},
     {"french", "test/hyphenation_eval/resources/french_hyphenation_tests.txt", "fr"},
     {"german", "test/hyphenation_eval/resources/german_hyphenation_tests.txt", "de"},
+    {"hungarian", "test/hyphenation_eval/resources/hungarian_hyphenation_tests.txt", "hu"},
     {"russian", "test/hyphenation_eval/resources/russian_hyphenation_tests.txt", "ru"},
 };
 

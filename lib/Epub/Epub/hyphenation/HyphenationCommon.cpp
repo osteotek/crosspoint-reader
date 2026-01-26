@@ -4,7 +4,7 @@
 
 namespace {
 
-// Convert Latin uppercase letters (ASCII plus Latin-1 supplement) to lowercase
+// Convert Latin uppercase letters (ASCII plus Latin-1 supplement and select Extended-A) to lowercase
 uint32_t toLowerLatinImpl(const uint32_t cp) {
   if (cp >= 'A' && cp <= 'Z') {
     return cp - 'A' + 'a';
@@ -18,6 +18,10 @@ uint32_t toLowerLatinImpl(const uint32_t cp) {
       return 0x0153;  // œ
     case 0x0178:      // Ÿ
       return 0x00FF;  // ÿ
+    case 0x0150:      // Ő
+      return 0x0151;  // ő
+    case 0x0170:      // Ű
+      return 0x0171;  // ű
     case 0x1E9E:      // ẞ
       return 0x00DF;  // ß
     default:
@@ -58,6 +62,10 @@ bool isLatinLetter(const uint32_t cp) {
     case 0x0152:  // Œ
     case 0x0153:  // œ
     case 0x0178:  // Ÿ
+    case 0x0150:  // Ő
+    case 0x0151:  // ő
+    case 0x0170:  // Ű
+    case 0x0171:  // ű
     case 0x1E9E:  // ẞ
       return true;
     default:
