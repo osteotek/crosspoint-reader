@@ -56,6 +56,12 @@ bool EpdFont::hasPrintableChars(const char* string) const {
 }
 
 const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
+  // Check cache first for O(1) lookup of hot glyphs
+  const EpdGlyph* cached = glyphCache.lookup(cp);
+  if (cached) {
+    return cached;
+  }
+
   const EpdUnicodeInterval* intervals = data->intervals;
   const int count = data->intervalCount;
 
@@ -76,7 +82,9 @@ const EpdGlyph* EpdFont::getGlyph(const uint32_t cp) const {
       left = mid + 1;
     } else {
       // Found: cp >= interval->first && cp <= interval->last
-      return &data->glyph[interval->offset + (cp - interval->first)];
+      const EpdGlyph* glyph = &data->glyph[interval->offset + (cp - interval->first)];
+      glyphCache.store(cp, glyph);
+      return glyph;
     }
   }
 
