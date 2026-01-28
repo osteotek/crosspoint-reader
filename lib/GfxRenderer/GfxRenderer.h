@@ -3,7 +3,9 @@
 #include <EpdFontFamily.h>
 #include <HalDisplay.h>
 
+#include <cstddef>
 #include <map>
+#include <unordered_map>
 
 #include "Bitmap.h"
 
@@ -30,6 +32,9 @@ class GfxRenderer {
   Orientation orientation;
   uint8_t* bwBufferChunks[BW_BUFFER_NUM_CHUNKS] = {nullptr};
   std::map<int, EpdFontFamily> fontMap;
+  mutable std::unordered_map<int, int> spaceWidthCache;
+  mutable std::unordered_map<int, int> ascenderCache;
+  mutable std::unordered_map<int, int> lineHeightCache;
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, const int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
   void freeBwBufferChunks();
@@ -73,13 +78,22 @@ class GfxRenderer {
 
   // Text
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  int getTextWidth(int fontId, const char* text, size_t length,
+                   EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  int getTextWidthWithAppend(int fontId, const char* text, size_t length, uint32_t appendCp,
+                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  int getTextWidthWithAppendSkippingSoftHyphen(int fontId, const char* text, size_t length, uint32_t appendCp,
+                                               EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawCenteredText(int fontId, int y, const char* text, bool black = true,
                         EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   int getSpaceWidth(int fontId) const;
+  int getSpaceWidth(int fontId, EpdFontFamily::Style style) const;
   int getFontAscenderSize(int fontId) const;
+  int getFontAscenderSize(int fontId, EpdFontFamily::Style style) const;
   int getLineHeight(int fontId) const;
+  int getLineHeight(int fontId, EpdFontFamily::Style style) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 

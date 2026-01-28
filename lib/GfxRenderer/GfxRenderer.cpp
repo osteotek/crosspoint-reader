@@ -2,7 +2,12 @@
 
 #include <Utf8.h>
 
-void GfxRenderer::insertFont(const int fontId, EpdFontFamily font) { fontMap.insert({fontId, font}); }
+void GfxRenderer::insertFont(const int fontId, EpdFontFamily font) {
+  fontMap.insert({fontId, font});
+  spaceWidthCache.clear();
+  ascenderCache.clear();
+  lineHeightCache.clear();
+}
 
 void GfxRenderer::rotateCoordinates(const int x, const int y, int* rotatedX, int* rotatedY) const {
   switch (orientation) {
@@ -73,6 +78,43 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
 
   int w = 0, h = 0;
   fontMap.at(fontId).getTextDimensions(text, &w, &h, style);
+  return w;
+}
+
+int GfxRenderer::getTextWidth(const int fontId, const char* text, const size_t length,
+                              const EpdFontFamily::Style style) const {
+  if (fontMap.count(fontId) == 0) {
+    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    return 0;
+  }
+
+  int w = 0, h = 0;
+  fontMap.at(fontId).getTextDimensions(text, length, &w, &h, style);
+  return w;
+}
+
+int GfxRenderer::getTextWidthWithAppend(const int fontId, const char* text, const size_t length,
+                                        const uint32_t appendCp, const EpdFontFamily::Style style) const {
+  if (fontMap.count(fontId) == 0) {
+    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    return 0;
+  }
+
+  int w = 0, h = 0;
+  fontMap.at(fontId).getTextDimensionsWithAppend(text, length, appendCp, &w, &h, style);
+  return w;
+}
+
+int GfxRenderer::getTextWidthWithAppendSkippingSoftHyphen(const int fontId, const char* text, const size_t length,
+                                                          const uint32_t appendCp,
+                                                          const EpdFontFamily::Style style) const {
+  if (fontMap.count(fontId) == 0) {
+    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    return 0;
+  }
+
+  int w = 0, h = 0;
+  fontMap.at(fontId).getTextDimensionsWithAppendSkippingSoftHyphen(text, length, appendCp, &w, &h, style);
   return w;
 }
 
@@ -454,30 +496,63 @@ int GfxRenderer::getScreenHeight() const {
 }
 
 int GfxRenderer::getSpaceWidth(const int fontId) const {
+  return getSpaceWidth(fontId, EpdFontFamily::REGULAR);
+}
+
+int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style style) const {
   if (fontMap.count(fontId) == 0) {
     Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
     return 0;
   }
 
-  return fontMap.at(fontId).getGlyph(' ', EpdFontFamily::REGULAR)->advanceX;
+  const auto cached = spaceWidthCache.find(fontId);
+  if (cached != spaceWidthCache.end()) {
+    return cached->second;
+  }
+
+  const int width = fontMap.at(fontId).getGlyph(' ', style)->advanceX;
+  spaceWidthCache.emplace(fontId, width);
+  return width;
 }
 
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
+  return getFontAscenderSize(fontId, EpdFontFamily::REGULAR);
+}
+
+int GfxRenderer::getFontAscenderSize(const int fontId, const EpdFontFamily::Style style) const {
   if (fontMap.count(fontId) == 0) {
     Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
     return 0;
   }
 
-  return fontMap.at(fontId).getData(EpdFontFamily::REGULAR)->ascender;
+  const auto cached = ascenderCache.find(fontId);
+  if (cached != ascenderCache.end()) {
+    return cached->second;
+  }
+
+  const int value = fontMap.at(fontId).getData(style)->ascender;
+  ascenderCache.emplace(fontId, value);
+  return value;
 }
 
 int GfxRenderer::getLineHeight(const int fontId) const {
+  return getLineHeight(fontId, EpdFontFamily::REGULAR);
+}
+
+int GfxRenderer::getLineHeight(const int fontId, const EpdFontFamily::Style style) const {
   if (fontMap.count(fontId) == 0) {
     Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
     return 0;
   }
 
-  return fontMap.at(fontId).getData(EpdFontFamily::REGULAR)->advanceY;
+  const auto cached = lineHeightCache.find(fontId);
+  if (cached != lineHeightCache.end()) {
+    return cached->second;
+  }
+
+  const int value = fontMap.at(fontId).getData(style)->advanceY;
+  lineHeightCache.emplace(fontId, value);
+  return value;
 }
 
 void GfxRenderer::drawButtonHints(const int fontId, const char* btn1, const char* btn2, const char* btn3,

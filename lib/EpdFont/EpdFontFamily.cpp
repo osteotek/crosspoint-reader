@@ -26,8 +26,28 @@ void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const 
   getFont(style)->getTextDimensions(string, w, h);
 }
 
+void EpdFontFamily::getTextDimensions(const char* string, const size_t length, int* w, int* h,
+                                      const Style style) const {
+  getFont(style)->getTextDimensions(string, length, w, h);
+}
+
+void EpdFontFamily::getTextDimensionsWithAppend(const char* string, const size_t length, const uint32_t appendCp,
+                                                int* w, int* h, const Style style) const {
+  getFont(style)->getTextDimensionsWithAppend(string, length, appendCp, w, h);
+}
+
+void EpdFontFamily::getTextDimensionsWithAppendSkippingSoftHyphen(const char* string, const size_t length,
+                                                                  const uint32_t appendCp, int* w, int* h,
+                                                                  const Style style) const {
+  getFont(style)->getTextDimensionsWithAppendSkippingSoftHyphen(string, length, appendCp, w, h);
+}
+
 bool EpdFontFamily::hasPrintableChars(const char* string, const Style style) const {
   return getFont(style)->hasPrintableChars(string);
+}
+
+bool EpdFontFamily::hasPrintableChars(const char* string, const size_t length, const Style style) const {
+  return getFont(style)->hasPrintableChars(string, length);
 }
 
 const EpdFontData* EpdFontFamily::getData(const Style style) const { return getFont(style)->data; }

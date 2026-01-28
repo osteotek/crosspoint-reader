@@ -1,4 +1,7 @@
 #pragma once
+
+#include <cstddef>
+
 #include "EpdFont.h"
 
 class EpdFontFamily {
@@ -10,7 +13,13 @@ class EpdFontFamily {
       : regular(regular), bold(bold), italic(italic), boldItalic(boldItalic) {}
   ~EpdFontFamily() = default;
   void getTextDimensions(const char* string, int* w, int* h, Style style = REGULAR) const;
+  void getTextDimensions(const char* string, size_t length, int* w, int* h, Style style = REGULAR) const;
+  void getTextDimensionsWithAppend(const char* string, size_t length, uint32_t appendCp, int* w, int* h,
+                                   Style style = REGULAR) const;
+  void getTextDimensionsWithAppendSkippingSoftHyphen(const char* string, size_t length, uint32_t appendCp, int* w,
+                                                     int* h, Style style = REGULAR) const;
   bool hasPrintableChars(const char* string, Style style = REGULAR) const;
+  bool hasPrintableChars(const char* string, size_t length, Style style = REGULAR) const;
   const EpdFontData* getData(Style style = REGULAR) const;
   const EpdGlyph* getGlyph(uint32_t cp, Style style = REGULAR) const;
 

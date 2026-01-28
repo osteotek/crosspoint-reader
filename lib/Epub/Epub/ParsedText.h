@@ -8,13 +8,36 @@
 #include <string>
 #include <vector>
 
+#if defined(CROSSPOINT_LAYOUT_BENCH)
+#include <cstdint>
+#include <list>
+
+class TextBlock {
+ public:
+  enum Style : uint8_t {
+    JUSTIFIED = 0,
+    LEFT_ALIGN = 1,
+    CENTER_ALIGN = 2,
+    RIGHT_ALIGN = 3,
+  };
+
+  explicit TextBlock(std::list<std::string> wordsIn, std::list<uint16_t>, std::list<EpdFontFamily::Style>, Style)
+      : words(std::move(wordsIn)) {}
+
+  const std::list<std::string>& getWords() const { return words; }
+
+ private:
+  std::list<std::string> words;
+};
+#else
 #include "blocks/TextBlock.h"
+#endif
 
 class GfxRenderer;
 
 class ParsedText {
-  std::list<std::string> words;
-  std::list<EpdFontFamily::Style> wordStyles;
+  std::vector<std::string> words;
+  std::vector<EpdFontFamily::Style> wordStyles;
   TextBlock::Style style;
   bool extraParagraphSpacing;
   bool hyphenationEnabled;
@@ -54,7 +77,7 @@ class ParsedText {
   bool splitWordAtIndex(size_t wordIndex, size_t splitByteOffset, bool insertHyphen, const GfxRenderer& renderer,
                         int fontId, std::vector<uint16_t>& wordWidths);
   void extractLine(size_t breakIndex, int pageWidth, int spaceWidth, const std::vector<uint16_t>& wordWidths,
-                   const std::vector<size_t>& lineBreakIndices,
+                   const std::vector<int>& wordWidthPrefix, const std::vector<size_t>& lineBreakIndices,
                    const std::function<void(std::shared_ptr<TextBlock>)>& processLine);
   std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId);
 

@@ -5,3 +5,4 @@
 #define REPLACEMENT_GLYPH 0xFFFD
 
 uint32_t utf8NextCodepoint(const unsigned char** string);
+uint32_t utf8NextCodepoint(const unsigned char** string, const unsigned char* end);
