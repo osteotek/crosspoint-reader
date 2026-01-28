@@ -37,10 +37,16 @@ class ChapterHtmlSlimParser {
   uint16_t viewportWidth;
   uint16_t viewportHeight;
   bool hyphenationEnabled;
+  uint32_t pageStartMs = 0;
+  uint32_t pageTotalMs = 0;
+  uint32_t pageCount = 0;
+  bool pageTimerActive = false;
 
   void startNewTextBlock(TextBlock::Style style);
   void flushPartWordBuffer();
   void makePages();
+  void startPageTimer();
+  void finishPageTimer();
   // XML callbacks
   static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char** atts);
   static void XMLCALL characterData(void* userData, const XML_Char* s, int len);

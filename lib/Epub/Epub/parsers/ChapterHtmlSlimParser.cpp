@@ -356,9 +356,16 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   // Process last page if there is still text
   if (currentTextBlock) {
     makePages();
+    finishPageTimer();
     completePageFn(std::move(currentPage));
     currentPage.reset();
     currentTextBlock.reset();
+  }
+
+  if (pageCount > 0) {
+    const uint32_t avgMs = pageTotalMs / pageCount;
+    Serial.printf("[%lu] [EHP] Avg page build: %lu ms over %lu pages (%s)\n", millis(),
+                  static_cast<unsigned long>(avgMs), static_cast<unsigned long>(pageCount), filepath.c_str());
   }
 
   return true;
@@ -368,9 +375,11 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
 
   if (currentPageNextY + lineHeight > viewportHeight) {
+    finishPageTimer();
     completePageFn(std::move(currentPage));
     currentPage.reset(new Page());
     currentPageNextY = 0;
+    startPageTimer();
   }
 
   currentPage->elements.push_back(std::make_shared<PageLine>(line, 0, currentPageNextY));
@@ -386,6 +395,7 @@ void ChapterHtmlSlimParser::makePages() {
   if (!currentPage) {
     currentPage.reset(new Page());
     currentPageNextY = 0;
+    startPageTimer();
   }
 
   const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
@@ -396,4 +406,19 @@ void ChapterHtmlSlimParser::makePages() {
   if (extraParagraphSpacing) {
     currentPageNextY += lineHeight / 2;
   }
+}
+
+void ChapterHtmlSlimParser::startPageTimer() {
+  pageStartMs = millis();
+  pageTimerActive = true;
+}
+
+void ChapterHtmlSlimParser::finishPageTimer() {
+  if (!pageTimerActive) {
+    return;
+  }
+  const uint32_t elapsed = millis() - pageStartMs;
+  pageTotalMs += elapsed;
+  pageCount += 1;
+  pageTimerActive = false;
 }
