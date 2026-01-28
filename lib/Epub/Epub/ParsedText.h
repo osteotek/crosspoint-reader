@@ -2,6 +2,7 @@
 
 #include <EpdFontFamily.h>
 
+#include <cstdint>
 #include <functional>
 #include <list>
 #include <memory>
@@ -52,14 +53,14 @@ class ParsedText {
     bool insertHyphen;    // True when we should append a visible '-' to the prefix.
     int preBreak;         // Width of text before this candidate (without breaking here).
     int postBreak;        // Width of text if we break here (may include hyphen width).
-    float penalty;        // Penalty for taking this break (hyphenation penalty).
+    int64_t penalty;      // Penalty for taking this break (hyphenation penalty).
     int preSpaceCount;    // Spaces before this break, used for shrink calculations.
     int postSpaceCount;   // Spaces after this break, used for shrink calculations.
   };
 
   // DP state for optimal line breaks.
   struct OptimalBreakData {
-    float score;       // Best score up to this candidate.
+    int64_t score;     // Best score up to this candidate.
     size_t prev;       // Index of previous candidate in the optimal path.
     size_t lineNumber; // Computed line number at this candidate.
   };

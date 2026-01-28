@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <cmath>
 #include <functional>
 #include <limits>
 #include <list>
@@ -21,16 +20,16 @@ constexpr char SOFT_HYPHEN_UTF8[] = "\xC2\xAD";
 constexpr size_t SOFT_HYPHEN_BYTES = 2;
 
 // Large sentinel scores; these dominate any reasonable width score.
-constexpr float SCORE_INFTY = std::numeric_limits<float>::max();
-constexpr float SCORE_OVERFULL = 1e12f;   // Overfull lines are treated as extremely bad.
-constexpr float SCORE_DESPERATE = 1e10f;  // Desperate breaks are worse than hyphenation.
+constexpr int64_t SCORE_INFTY = std::numeric_limits<int64_t>::max() / 4;
+constexpr int64_t SCORE_OVERFULL = 1000000000000LL;   // Overfull lines are treated as extremely bad.
+constexpr int64_t SCORE_DESPERATE = 10000000000LL;    // Desperate breaks are worse than hyphenation.
 
 // Penalty/heuristic multipliers matching Minikin's scoring scheme.
-constexpr float LAST_LINE_PENALTY_MULTIPLIER = 4.0f;  // Penalize hyphens on the last line.
-constexpr float LINE_PENALTY_MULTIPLIER = 2.0f;       // Penalize extra lines (ragged text).
-constexpr float SHRINK_PENALTY_MULTIPLIER = 4.0f;     // Penalize space shrinking in justified text.
-constexpr float SHRINKABILITY = 1.0f / 3.0f;          // Max fraction of space width that can shrink.
-constexpr float JUSTIFIED_HYPHEN_PENALTY = 2.0f;      // Penalty for hyphens in justified text.
+constexpr int LAST_LINE_PENALTY_MULTIPLIER = 4;   // Penalize hyphens on the last line.
+constexpr int LINE_PENALTY_MULTIPLIER = 2;        // Penalize extra lines (ragged text).
+constexpr int SHRINK_PENALTY_MULTIPLIER = 4;      // Penalize space shrinking in justified text.
+constexpr int SHRINKABILITY_DENOM = 3;            // Max fraction of space width that can shrink (1/3).
+constexpr int JUSTIFIED_HYPHEN_PENALTY = 2;       // Penalty for hyphens in justified text.
 
 // Cap fallback breakpoints for very long words to keep DP cost predictable.
 constexpr size_t MAX_FALLBACK_BREAKPOINTS = 6;
@@ -196,18 +195,16 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   // Translate Minikin penalty model into our word-based width units.
   // This sets the relative cost of hyphenation and extra lines.
   const bool justified = style == TextBlock::JUSTIFIED;
-  const float spaceWidthF = static_cast<float>(spaceWidth);
-  const float pageWidthF = static_cast<float>(pageWidth);
-  float maxWordWidthF = 0.0f;
+  int maxWordWidth = 0;
   for (const auto width : wordWidths) {
-    maxWordWidthF = std::max(maxWordWidthF, static_cast<float>(width));
+    maxWordWidth = std::max(maxWordWidth, static_cast<int>(width));
   }
-  float hyphenPenalty = 0.5f * std::max(spaceWidthF, 1.0f) * pageWidthF;
+  int64_t hyphenPenalty = static_cast<int64_t>(std::max(spaceWidth, 1) * pageWidth) / 2;
   if (justified) {
     // hyphenPenalty *= 0.25f;
     hyphenPenalty *= JUSTIFIED_HYPHEN_PENALTY;
   }
-  const float linePenalty = justified ? 0.0f : hyphenPenalty * LINE_PENALTY_MULTIPLIER;
+  const int64_t linePenalty = justified ? 0 : hyphenPenalty * LINE_PENALTY_MULTIPLIER;
 
   // Precompute hyphenation break info per word so we can reserve candidate storage
   // and avoid repeated hyphenation work in the inner loop.
@@ -259,7 +256,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     candidate.insertHyphen = false;
     candidate.preBreak = baseCumulative[wordIndex];
     candidate.postBreak = candidate.preBreak;
-    candidate.penalty = 0.0f;
+    candidate.penalty = 0;
     candidate.preSpaceCount = spaceCountForIndex(wordIndex);
     candidate.postSpaceCount = candidate.preSpaceCount;
     if (wordIndex > 0 && wordIndex < totalWordCount) {
@@ -387,22 +384,22 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   breaksData.clear();
   breaksData.reserve(candidateCount);
   // The first candidate always begins the first line.
-  breaksData.push_back({0.0f, 0, 0});
+  breaksData.push_back({0, 0, 0});
 
   // "active" tracks the earliest viable start candidate for the current line.
   size_t active = 0;
-  const float maxShrink = justified ? SHRINKABILITY * spaceWidthF : 0.0f;
+  const int maxShrink = justified ? (spaceWidth / SHRINKABILITY_DENOM) : 0;
 
   // "i" iterates candidates for the end of the line.
   for (size_t i = 1; i < candidateCount; ++i) {
     const bool atEnd = i == candidateCount - 1;
-    float best = SCORE_INFTY;
+    int64_t best = SCORE_INFTY;
     size_t bestPrev = 0;
 
     // Skip start candidates that would force a line to be wildly overfull.
-    const float maxLineWidth = pageWidthF + std::max(maxWordWidthF, spaceWidthF);
+    const int maxLineWidth = pageWidth + std::max(maxWordWidth, spaceWidth);
     while (active < i) {
-      const float lineWidth = static_cast<float>(candidates[i].postBreak - candidates[active].preBreak);
+      const int lineWidth = candidates[i].postBreak - candidates[active].preBreak;
       if (lineWidth <= maxLineWidth) {
         break;
       }
@@ -412,7 +409,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     // Any candidate "j" before it will define a line whose width is:
     // candidates[i].postBreak - candidates[j].preBreak.
     // Lower bound for widthScore of the remaining candidates (monotonicity heuristic).
-    float bestLowerBound = 0.0f;
+    int64_t bestLowerBound = 0;
 
     // "j" iterates candidates for the beginning of the line, starting at the active window.
     // This is the O(n^2) core of the algorithm, pruned by "active" and "bestLowerBound".
@@ -425,23 +422,24 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
       // delta is the difference between target width and actual line width.
       // Positive delta means the line is underfull; negative means overfull.
-      const float lineWidth = static_cast<float>(candidates[i].postBreak - candidates[j].preBreak);
-      const float delta = pageWidthF - lineWidth;
-      float widthScore = 0.0f;
-      float additionalPenalty = 0.0f;
+      const int lineWidth = candidates[i].postBreak - candidates[j].preBreak;
+      const int delta = pageWidth - lineWidth;
+      int64_t widthScore = 0;
+      int64_t additionalPenalty = 0;
 
       // Mirror Minikin's width scoring: overfull lines are heavily penalized.
-      if ((atEnd || !justified) && delta < 0.0f) {
+      if ((atEnd || !justified) && delta < 0) {
         widthScore = SCORE_OVERFULL;
       } else if (atEnd) {
         // Encourage fewer hyphens on the final line.
-        additionalPenalty = LAST_LINE_PENALTY_MULTIPLIER * candidates[j].penalty;
+        additionalPenalty = static_cast<int64_t>(LAST_LINE_PENALTY_MULTIPLIER) * candidates[j].penalty;
       } else {
         // Quadratic penalty favors lines closer to the target width.
-        widthScore = delta * delta;
-        if (delta < 0.0f) {
-          const float shrinkLimit =
-              maxShrink * static_cast<float>(candidates[i].postSpaceCount - candidates[j].preSpaceCount);
+        widthScore = static_cast<int64_t>(delta) * static_cast<int64_t>(delta);
+        if (delta < 0) {
+          const int64_t shrinkLimit =
+              static_cast<int64_t>(maxShrink) *
+              static_cast<int64_t>(candidates[i].postSpaceCount - candidates[j].preSpaceCount);
           if (-delta < shrinkLimit) {
             // Small overflow can be handled by shrinking spaces (justified mode).
             widthScore *= SHRINK_PENALTY_MULTIPLIER;
@@ -451,14 +449,14 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
         }
       }
 
-      if (!atEnd && delta >= 0.0f && widthScore >= best) {
+      if (!atEnd && delta >= 0 && widthScore >= best) {
         // For non-final lines, widthScore grows with delta. If widthScore already exceeds
         // the best score found so far, later candidates cannot improve it, so we can stop.
         break;
       }
 
       // Update the active window when we are already overfull to skip hopeless starts.
-      if (delta < 0.0f) {
+      if (delta < 0) {
         active = j + 1;
       } else {
         // bestLowerBound assumes widthScore grows monotonically for non-negative delta.
