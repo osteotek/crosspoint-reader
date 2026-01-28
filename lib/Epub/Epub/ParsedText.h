@@ -38,6 +38,7 @@ class GfxRenderer;
 class ParsedText {
   std::vector<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
+  size_t startIndex = 0;
   TextBlock::Style style;
   bool extraParagraphSpacing;
   bool hyphenationEnabled;
@@ -72,14 +73,15 @@ class ParsedText {
 
   void applyParagraphIndent();
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth, int spaceWidth,
-                                        std::vector<uint16_t>& wordWidths);
+                                        std::vector<uint16_t>& wordWidths, size_t baseIndex);
   // Split a word at an explicit byte offset.
   bool splitWordAtIndex(size_t wordIndex, size_t splitByteOffset, bool insertHyphen, const GfxRenderer& renderer,
                         int fontId, std::vector<uint16_t>& wordWidths);
   void extractLine(size_t breakIndex, int pageWidth, int spaceWidth, const std::vector<uint16_t>& wordWidths,
                    const std::vector<int>& wordWidthPrefix, const std::vector<size_t>& lineBreakIndices,
+                   size_t baseIndex,
                    const std::function<void(std::shared_ptr<TextBlock>)>& processLine);
-  std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId);
+  std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId, size_t baseIndex);
 
  public:
   explicit ParsedText(const TextBlock::Style style, const bool extraParagraphSpacing,
@@ -90,8 +92,8 @@ class ParsedText {
   void addWord(std::string word, EpdFontFamily::Style fontStyle);
   void setStyle(const TextBlock::Style style) { this->style = style; }
   TextBlock::Style getStyle() const { return style; }
-  size_t size() const { return words.size(); }
-  bool isEmpty() const { return words.empty(); }
+  size_t size() const { return words.size() > startIndex ? words.size() - startIndex : 0; }
+  bool isEmpty() const { return size() == 0; }
   void layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
                              bool includeLastLine = true);

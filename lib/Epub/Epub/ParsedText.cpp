@@ -77,7 +77,7 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle)
 void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
                                        const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
                                        const bool includeLastLine) {
-  if (words.empty()) {
+  if (isEmpty()) {
     return;
   }
 
@@ -86,8 +86,9 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   const int pageWidth = viewportWidth;
   const int spaceWidth = renderer.getSpaceWidth(fontId);
-  auto wordWidths = calculateWordWidths(renderer, fontId);
-  std::vector<size_t> lineBreakIndices = computeLineBreaks(renderer, fontId, pageWidth, spaceWidth, wordWidths);
+  auto wordWidths = calculateWordWidths(renderer, fontId, startIndex);
+  std::vector<size_t> lineBreakIndices =
+      computeLineBreaks(renderer, fontId, pageWidth, spaceWidth, wordWidths, startIndex);
   std::vector<int> wordWidthPrefix(wordWidths.size() + 1, 0);
   for (size_t i = 0; i < wordWidths.size(); ++i) {
     wordWidthPrefix[i + 1] = wordWidthPrefix[i] + static_cast<int>(wordWidths[i]);
@@ -95,34 +96,39 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
 
   for (size_t i = 0; i < lineCount; ++i) {
-    extractLine(i, pageWidth, spaceWidth, wordWidths, wordWidthPrefix, lineBreakIndices, processLine);
+    extractLine(i, pageWidth, spaceWidth, wordWidths, wordWidthPrefix, lineBreakIndices, startIndex, processLine);
   }
 
   if (lineCount > 0) {
-    const size_t consumed = lineBreakIndices[lineCount - 1];
-    if (consumed > 0) {
-      words.erase(words.begin(), words.begin() + static_cast<std::ptrdiff_t>(consumed));
-      wordStyles.erase(wordStyles.begin(), wordStyles.begin() + static_cast<std::ptrdiff_t>(consumed));
-    }
+    startIndex += lineBreakIndices[lineCount - 1];
+  }
+
+  if (startIndex >= words.size()) {
+    words.clear();
+    wordStyles.clear();
+    startIndex = 0;
   }
 }
 
-std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& renderer, const int fontId) {
-  const size_t totalWordCount = words.size();
+std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& renderer, const int fontId,
+                                                      const size_t baseIndex) {
+  const size_t totalWordCount = words.size() > baseIndex ? words.size() - baseIndex : 0;
 
   std::vector<uint16_t> wordWidths;
   wordWidths.reserve(totalWordCount);
 
   for (size_t i = 0; i < totalWordCount; ++i) {
-    wordWidths.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i]));
+    const size_t idx = baseIndex + i;
+    wordWidths.push_back(measureWordWidth(renderer, fontId, words[idx], wordStyles[idx]));
   }
 
   return wordWidths;
 }
 
 std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, const int fontId, const int pageWidth,
-                                                  const int spaceWidth, std::vector<uint16_t>& wordWidths) {
-  if (words.empty()) {
+                                                  const int spaceWidth, std::vector<uint16_t>& wordWidths,
+                                                  const size_t baseIndex) {
+  if (wordWidths.empty()) {
     return {};
   }
 
@@ -151,15 +157,13 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   // Use pointer views to avoid copying the word and style lists. The underlying
   // lists stay stable during candidate generation, so pointers remain valid.
   std::vector<const std::string*> wordPtrs;
-  wordPtrs.reserve(words.size());
-  for (const auto& word : words) {
-    wordPtrs.push_back(&word);
-  }
-
+  wordPtrs.reserve(wordWidths.size());
   std::vector<const EpdFontFamily::Style*> stylePtrs;
-  stylePtrs.reserve(wordStyles.size());
-  for (const auto& styleEntry : wordStyles) {
-    stylePtrs.push_back(&styleEntry);
+  stylePtrs.reserve(wordWidths.size());
+  for (size_t i = 0; i < wordWidths.size(); ++i) {
+    const size_t idx = baseIndex + i;
+    wordPtrs.push_back(&words[idx]);
+    stylePtrs.push_back(&wordStyles[idx]);
   }
 
   const size_t totalWordCount = wordPtrs.size();
@@ -499,7 +503,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     }
 
     // Hyphenation candidate: split the word and break after the inserted prefix.
-    const size_t currentIndex = candidate.wordIndex + indexShift;
+    const size_t currentIndex = baseIndex + candidate.wordIndex + indexShift;
     const size_t consumed = consumedOffsets[candidate.wordIndex];
     const size_t relativeOffset = candidate.byteOffset - consumed;
 
@@ -519,7 +523,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 }
 
 void ParsedText::applyParagraphIndent() {
-  if (extraParagraphSpacing || words.empty()) {
+  if (extraParagraphSpacing || startIndex != 0 || words.empty()) {
     return;
   }
 
@@ -564,7 +568,7 @@ bool ParsedText::splitWordAtIndex(const size_t wordIndex, size_t splitByteOffset
 
 void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const int spaceWidth,
                              const std::vector<uint16_t>& wordWidths, const std::vector<int>& wordWidthPrefix,
-                             const std::vector<size_t>& lineBreakIndices,
+                             const std::vector<size_t>& lineBreakIndices, const size_t baseIndex,
                              const std::function<void(std::shared_ptr<TextBlock>)>& processLine) {
   const size_t lineBreak = lineBreakIndices[breakIndex];
   const size_t lastBreakAt = breakIndex > 0 ? lineBreakIndices[breakIndex - 1] : 0;
@@ -604,8 +608,9 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   std::list<std::string> lineWords;
   std::list<EpdFontFamily::Style> lineWordStyles;
   for (size_t i = lastBreakAt; i < lineBreak; ++i) {
-    lineWords.push_back(std::move(words[i]));
-    lineWordStyles.push_back(wordStyles[i]);
+    const size_t idx = baseIndex + i;
+    lineWords.push_back(std::move(words[idx]));
+    lineWordStyles.push_back(wordStyles[idx]);
   }
 
   for (auto& word : lineWords) {
