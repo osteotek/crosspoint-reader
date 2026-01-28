@@ -323,30 +323,8 @@ void EpubReaderActivity::renderScreen() {
       const int barX = boxXWithBar + (boxWidthWithBar - barWidth) / 2;
       const int barY = boxY + renderer.getLineHeight(UI_12_FONT_ID) + boxMargin * 2;
 
-      // Always show "Indexing..." text first
-      {
-        renderer.fillRect(boxXNoBar, boxY, boxWidthNoBar, boxHeightNoBar, false);
-        renderer.drawText(UI_12_FONT_ID, boxXNoBar + boxMargin, boxY + boxMargin, "Indexing...");
-        renderer.drawRect(boxXNoBar + 5, boxY + 5, boxWidthNoBar - 10, boxHeightNoBar - 10);
-        renderer.displayBuffer();
-        pagesUntilFullRefresh = 0;
-      }
-
-      // Setup callback - only called for chapters >= 50KB, redraws with progress bar
-      auto progressSetup = [this, boxXWithBar, boxWidthWithBar, boxHeightWithBar, barX, barY] {
-        renderer.fillRect(boxXWithBar, boxY, boxWidthWithBar, boxHeightWithBar, false);
-        renderer.drawText(UI_12_FONT_ID, boxXWithBar + boxMargin, boxY + boxMargin, "Indexing...");
-        renderer.drawRect(boxXWithBar + 5, boxY + 5, boxWidthWithBar - 10, boxHeightWithBar - 10);
-        renderer.drawRect(barX, barY, barWidth, barHeight);
-        renderer.displayBuffer();
-      };
-
-      // Progress callback to update progress bar
-      auto progressCallback = [this, barX, barY, barWidth, barHeight](int progress) {
-        const int fillWidth = (barWidth - 2) * progress / 100;
-        renderer.fillRect(barX + 1, barY + 1, fillWidth, barHeight - 2, true);
-        renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-      };
+      auto progressSetup = [] {};
+      auto progressCallback = [](int) {};
 
       if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
