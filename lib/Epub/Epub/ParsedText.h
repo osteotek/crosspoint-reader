@@ -50,8 +50,8 @@ class ParsedText {
     size_t byteOffset;    // Byte offset inside the word if this is a hyphenation candidate.
     bool isHyphenation;   // True when this candidate splits within a word (hyphenation or desperate).
     bool insertHyphen;    // True when we should append a visible '-' to the prefix.
-    float preBreak;       // Width of text before this candidate (without breaking here).
-    float postBreak;      // Width of text if we break here (may include hyphen width).
+    int preBreak;         // Width of text before this candidate (without breaking here).
+    int postBreak;        // Width of text if we break here (may include hyphen width).
     float penalty;        // Penalty for taking this break (hyphenation penalty).
     int preSpaceCount;    // Spaces before this break, used for shrink calculations.
     int postSpaceCount;   // Spaces after this break, used for shrink calculations.

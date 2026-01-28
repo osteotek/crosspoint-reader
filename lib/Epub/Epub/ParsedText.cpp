@@ -178,11 +178,11 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
   // Precompute cumulative widths assuming a single space between words. This mirrors Minikin's
   // use of preBreak/postBreak so we can compute line widths by subtraction and avoid O(n^2) sums.
-  std::vector<float> baseCumulative(totalWordCount + 1, 0.0f);
+  std::vector<int> baseCumulative(totalWordCount + 1, 0);
   for (size_t i = 0; i < totalWordCount; ++i) {
-    baseCumulative[i + 1] = baseCumulative[i] + static_cast<float>(wordWidths[i]);
+    baseCumulative[i + 1] = baseCumulative[i] + static_cast<int>(wordWidths[i]);
     if (i + 1 < totalWordCount) {
-      baseCumulative[i + 1] += static_cast<float>(spaceWidth);
+      baseCumulative[i + 1] += spaceWidth;
     }
   }
 
@@ -264,7 +264,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     candidate.postSpaceCount = candidate.preSpaceCount;
     if (wordIndex > 0 && wordIndex < totalWordCount) {
       // Breaking between words doesn't consume the trailing space on the line.
-      candidate.postBreak -= spaceWidthF;
+      candidate.postBreak -= spaceWidth;
       candidate.postSpaceCount -= 1;
     }
     candidates.push_back(candidate);
@@ -275,8 +275,8 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
   // Reuse intra-word scratch buffers to avoid per-word allocations.
   std::vector<OptimalBreakCandidate> intraCandidates;
-  std::vector<float> prefixNoHyphenWidths;
-  std::vector<float> prefixWithHyphenWidths;
+  std::vector<int> prefixNoHyphenWidths;
+  std::vector<int> prefixWithHyphenWidths;
   std::vector<char> prefixNoHyphenValid;
   std::vector<char> prefixWithHyphenValid;
   for (size_t i = 0; i < totalWordCount; ++i) {
@@ -303,12 +303,12 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
         if (offset < prefixNoHyphenValid.size() && prefixNoHyphenValid[offset]) {
           return prefixNoHyphenWidths[offset];
         }
-        float prefixNoHyphen = 0.0f;
+        int prefixNoHyphen = 0;
         if (!wordHasSoftHyphen) {
-          prefixNoHyphen = static_cast<float>(renderer.getTextWidth(fontId, word.data(), offset, style));
+          prefixNoHyphen = renderer.getTextWidth(fontId, word.data(), offset, style);
         } else {
-          prefixNoHyphen = static_cast<float>(
-              renderer.getTextWidthWithAppendSkippingSoftHyphen(fontId, word.data(), offset, 0, style));
+          prefixNoHyphen =
+              renderer.getTextWidthWithAppendSkippingSoftHyphen(fontId, word.data(), offset, 0, style);
         }
         if (offset < prefixNoHyphenWidths.size()) {
           prefixNoHyphenWidths[offset] = prefixNoHyphen;
@@ -321,14 +321,12 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
         if (offset < prefixWithHyphenValid.size() && prefixWithHyphenValid[offset]) {
           return prefixWithHyphenWidths[offset];
         }
-        float prefixWithHyphen = 0.0f;
+        int prefixWithHyphen = 0;
         if (wordHasSoftHyphen) {
-          prefixWithHyphen =
-              static_cast<float>(renderer.getTextWidthWithAppendSkippingSoftHyphen(
-                  fontId, word.data(), offset, static_cast<uint32_t>('-'), style));
+          prefixWithHyphen = renderer.getTextWidthWithAppendSkippingSoftHyphen(
+              fontId, word.data(), offset, static_cast<uint32_t>('-'), style);
         } else {
-          prefixWithHyphen =
-              static_cast<float>(renderer.getTextWidthWithAppend(fontId, word.data(), offset, '-', style));
+          prefixWithHyphen = renderer.getTextWidthWithAppend(fontId, word.data(), offset, '-', style);
         }
         if (offset < prefixWithHyphenWidths.size()) {
           prefixWithHyphenWidths[offset] = prefixWithHyphen;
@@ -344,8 +342,8 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
           if (info.byteOffset == 0 || info.byteOffset >= wordSize) {
             continue;
           }
-          const float prefixNoHyphen = getPrefixNoHyphen(info.byteOffset);
-          const float prefixWithHyphen =
+          const int prefixNoHyphen = getPrefixNoHyphen(info.byteOffset);
+          const int prefixWithHyphen =
               info.requiresInsertedHyphen ? getPrefixWithHyphen(info.byteOffset) : prefixNoHyphen;
 
           // preBreak keeps the flowing width (no break); postBreak includes a visible hyphen if required.
@@ -404,7 +402,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     // Skip start candidates that would force a line to be wildly overfull.
     const float maxLineWidth = pageWidthF + std::max(maxWordWidthF, spaceWidthF);
     while (active < i) {
-      const float lineWidth = candidates[i].postBreak - candidates[active].preBreak;
+      const float lineWidth = static_cast<float>(candidates[i].postBreak - candidates[active].preBreak);
       if (lineWidth <= maxLineWidth) {
         break;
       }
@@ -427,7 +425,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
       // delta is the difference between target width and actual line width.
       // Positive delta means the line is underfull; negative means overfull.
-      const float lineWidth = candidates[i].postBreak - candidates[j].preBreak;
+      const float lineWidth = static_cast<float>(candidates[i].postBreak - candidates[j].preBreak);
       const float delta = pageWidthF - lineWidth;
       float widthScore = 0.0f;
       float additionalPenalty = 0.0f;
