@@ -33,7 +33,7 @@ const SettingInfo readerSettings[readerSettingsCount] = {
     SettingInfo::Enum("Paragraph Alignment", &CrossPointSettings::paragraphAlignment,
                       {"Justify", "Left", "Center", "Right"}),
     SettingInfo::Toggle("Hyphenation", &CrossPointSettings::hyphenationEnabled),
-    SettingInfo::Enum("Hyphenation Aggressiveness", &CrossPointSettings::hyphenationAggressiveness,
+    SettingInfo::Enum("Hyphenation Intensity", &CrossPointSettings::hyphenationIntensity,
                       {"Conservative", "Normal", "Aggressive"}),
     SettingInfo::Enum("Reading Orientation", &CrossPointSettings::orientation,
                       {"Portrait", "Landscape CW", "Inverted", "Landscape CCW"}),

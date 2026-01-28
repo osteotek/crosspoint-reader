@@ -256,7 +256,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     // hyphenPenalty *= 0.25f;
     hyphenPenalty *= JUSTIFIED_HYPHEN_PENALTY;
   }
-  switch (hyphenationAggressiveness) {
+  switch (hyphenationIntensity) {
     case 0:  // Conservative: fewer hyphens
       hyphenPenalty *= 2;
       break;

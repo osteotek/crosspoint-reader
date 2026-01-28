@@ -37,7 +37,7 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
 void Section::writeSectionFileHeader(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
                                      const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                      const uint16_t viewportHeight, const bool hyphenationEnabled,
-                                     const uint8_t hyphenationAggressiveness) {
+                                     const uint8_t hyphenationIntensity) {
   if (!file) {
     Serial.printf("[%lu] [SCT] File not open for writing header\n", millis());
     return;
@@ -45,7 +45,7 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(lineCompression) +
                                    sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(viewportWidth) +
                                    sizeof(viewportHeight) + sizeof(pageCount) + sizeof(hyphenationEnabled) +
-                                   sizeof(hyphenationAggressiveness) + sizeof(uint32_t),
+                                   sizeof(hyphenationIntensity) + sizeof(uint32_t),
                 "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);
@@ -55,7 +55,7 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   serialization::writePod(file, viewportWidth);
   serialization::writePod(file, viewportHeight);
   serialization::writePod(file, hyphenationEnabled);
-  serialization::writePod(file, hyphenationAggressiveness);
+  serialization::writePod(file, hyphenationIntensity);
   serialization::writePod(file, pageCount);  // Placeholder for page count (will be initially 0 when written)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for LUT offset
 }
@@ -63,7 +63,7 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
 bool Section::loadSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
                               const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                               const uint16_t viewportHeight, const bool hyphenationEnabled,
-                              const uint8_t hyphenationAggressiveness) {
+                              const uint8_t hyphenationIntensity) {
   if (!SdMan.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -85,7 +85,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     bool fileExtraParagraphSpacing;
     uint8_t fileParagraphAlignment;
     bool fileHyphenationEnabled;
-    uint8_t fileHyphenationAggressiveness;
+    uint8_t fileHyphenationIntensity;
     serialization::readPod(file, fileFontId);
     serialization::readPod(file, fileLineCompression);
     serialization::readPod(file, fileExtraParagraphSpacing);
@@ -93,13 +93,13 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     serialization::readPod(file, fileViewportWidth);
     serialization::readPod(file, fileViewportHeight);
     serialization::readPod(file, fileHyphenationEnabled);
-    serialization::readPod(file, fileHyphenationAggressiveness);
+    serialization::readPod(file, fileHyphenationIntensity);
 
     if (fontId != fileFontId || lineCompression != fileLineCompression ||
         extraParagraphSpacing != fileExtraParagraphSpacing || paragraphAlignment != fileParagraphAlignment ||
         viewportWidth != fileViewportWidth || viewportHeight != fileViewportHeight ||
         hyphenationEnabled != fileHyphenationEnabled ||
-        hyphenationAggressiveness != fileHyphenationAggressiveness) {
+        hyphenationIntensity != fileHyphenationIntensity) {
       file.close();
       Serial.printf("[%lu] [SCT] Deserialization failed: Parameters do not match\n", millis());
       clearCache();
@@ -132,7 +132,7 @@ bool Section::clearCache() const {
 bool Section::createSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
                                 const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                 const uint16_t viewportHeight, const bool hyphenationEnabled,
-                                const uint8_t hyphenationAggressiveness,
+                                const uint8_t hyphenationIntensity,
                                 const std::function<void()>& progressSetupFn,
                                 const std::function<void(int)>& progressFn) {
   constexpr uint32_t MIN_SIZE_FOR_PROGRESS = 50 * 1024;  // 50KB
@@ -193,7 +193,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   pageWriteTotalMs = 0;
   pageWriteCount = 0;
   writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
-                         viewportHeight, hyphenationEnabled, hyphenationAggressiveness);
+                         viewportHeight, hyphenationEnabled, hyphenationIntensity);
   std::vector<uint32_t> lut = {};
   constexpr size_t kPageBufferMax = 4;
   std::vector<std::unique_ptr<Page>> pageBuffer;
@@ -208,7 +208,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
 
   ChapterHtmlSlimParser visitor(
       tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
-      viewportHeight, hyphenationEnabled, hyphenationAggressiveness,
+      viewportHeight, hyphenationEnabled, hyphenationIntensity,
       [this, &pageBuffer, &flushPageBuffer](std::unique_ptr<Page> page) {
         pageBuffer.emplace_back(std::move(page));
         if (pageBuffer.size() >= kPageBufferMax) {

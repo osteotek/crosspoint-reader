@@ -53,7 +53,7 @@ class ParsedText {
   TextBlock::Style style;
   bool extraParagraphSpacing;
   bool hyphenationEnabled;
-  uint8_t hyphenationAggressiveness;
+  uint8_t hyphenationIntensity;
 
   // Simplified Minikin-style break candidate over a word-based layout model.
   // Each candidate represents either a word boundary or a hyphenation point.
@@ -102,11 +102,11 @@ class ParsedText {
 
  public:
   explicit ParsedText(const TextBlock::Style style, const bool extraParagraphSpacing,
-                      const bool hyphenationEnabled = false, const uint8_t hyphenationAggressiveness = 1)
+                      const bool hyphenationEnabled = false, const uint8_t hyphenationIntensity = 1)
       : style(style),
         extraParagraphSpacing(extraParagraphSpacing),
         hyphenationEnabled(hyphenationEnabled),
-        hyphenationAggressiveness(hyphenationAggressiveness) {}
+        hyphenationIntensity(hyphenationIntensity) {}
   ~ParsedText() = default;
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle);
