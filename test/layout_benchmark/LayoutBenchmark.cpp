@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
   int viewportWidth = 360;
   bool hyphenationEnabled = true;
   bool includeLastLine = true;
-  size_t samplePageLineLimit = 100;
+  size_t samplePageLineLimit = 30;
   uint8_t hyphenAggressiveness = 2;  // 0=conservative, 1=normal, 2=aggressive
 
   if (argc > 1) {
