@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
   bool hyphenationEnabled = true;
   bool includeLastLine = true;
   size_t samplePageLineLimit = 30;
-  uint8_t hyphenAggressiveness = 1;  // 0=conservative, 1=normal, 2=aggressive
+  uint8_t hyphenAggressiveness = 2;  // 0=conservative, 1=normal, 2=aggressive
 
   if (argc > 1) {
     iterations = std::stoi(argv[1]);
