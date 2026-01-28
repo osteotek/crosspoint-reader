@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
-#include <list>
 #include <utility>
 #include <vector>
 
@@ -47,6 +46,7 @@ void stripSoftHyphensInPlace(std::string& word) {
 // Returns the rendered width for a word while ignoring soft hyphen glyphs and optionally appending a visible hyphen.
 uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const std::string& word,
                           const EpdFontFamily::Style style, const bool appendHyphen = false) {
+  // Centralized word measurement: handles soft-hyphens and optional visible hyphen.
   const bool hasSoftHyphen = containsSoftHyphen(word);
   if (!hasSoftHyphen && !appendHyphen) {
     return renderer.getTextWidth(fontId, word.c_str(), style);
@@ -68,6 +68,7 @@ uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const s
 void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle) {
   if (word.empty()) return;
 
+  // Store words/styles in parallel for fast indexed access.
   words.push_back(std::move(word));
   wordStyles.push_back(fontStyle);
 }
@@ -81,27 +82,42 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   }
 
   // Apply fixed transforms before any per-line layout work.
+  // This currently only inserts a paragraph indent for the first line and
+  // must be done before width measurement or line breaking.
   applyParagraphIndent();
 
+  // Compute widths for the active slice, then run the line breaker.
   const int pageWidth = viewportWidth;
   const int spaceWidth = renderer.getSpaceWidth(fontId);
   auto wordWidths = calculateWordWidths(renderer, fontId, startIndex);
   std::vector<size_t> lineBreakIndices =
       computeLineBreaks(renderer, fontId, pageWidth, spaceWidth, wordWidths, startIndex);
+  // if (lineBreakIndices.empty()) {
+  //   // Fallback: treat the remaining words as a single line if DP produced no breaks.
+  //   lineBreakIndices.push_back(wordWidths.size());
+  // }
+
+  // Prefix sums for O(1) line width queries in extractLine.
+  // wordWidthPrefix[i] = sum(wordWidths[0..i-1]).
   std::vector<int> wordWidthPrefix(wordWidths.size() + 1, 0);
   for (size_t i = 0; i < wordWidths.size(); ++i) {
     wordWidthPrefix[i + 1] = wordWidthPrefix[i] + static_cast<int>(wordWidths[i]);
   }
-  const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
+  const size_t lineCount = includeLastLine ? lineBreakIndices.size() : (lineBreakIndices.size() - 1);
 
+  // Emit each line and hand it to the caller.
   for (size_t i = 0; i < lineCount; ++i) {
     extractLine(i, pageWidth, spaceWidth, wordWidths, wordWidthPrefix, lineBreakIndices, startIndex, processLine);
   }
 
+  // Advance the logical window to avoid erasing the prefix every pass.
+  // lineBreakIndices are relative to the current slice (startIndex).
   if (lineCount > 0) {
     startIndex += lineBreakIndices[lineCount - 1];
   }
 
+  // Periodic compaction to bound memory growth when the window advances far.
+  // This preserves relative ordering while reclaiming the prefix memory.
   if (startIndex >= words.size()) {
     startIndex = words.size();
   } else {
@@ -121,6 +137,9 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
   std::vector<uint16_t> wordWidths;
   wordWidths.reserve(totalWordCount);
 
+  // Measure each word in the active slice.
+  // The measured width accounts for soft hyphens (they are skipped unless a visible
+  // hyphen is explicitly appended during a split).
   for (size_t i = 0; i < totalWordCount; ++i) {
     const size_t idx = baseIndex + i;
     wordWidths.push_back(measureWordWidth(renderer, fontId, words[idx], wordStyles[idx]));
@@ -159,7 +178,9 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   // - The DP state stores the best score to reach each candidate, plus a back-pointer.
 
   // Use pointer views to avoid copying the word and style lists. The underlying
-  // lists stay stable during candidate generation, so pointers remain valid.
+  // storage stays stable during candidate generation, so pointers remain valid.
+  // NOTE: We still mutate "words" later (when applying hyphenation splits), but
+  // that happens after candidate generation.
   std::vector<const std::string*> wordPtrs;
   wordPtrs.reserve(wordWidths.size());
   std::vector<const EpdFontFamily::Style*> stylePtrs;
@@ -177,6 +198,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
   // Precompute cumulative widths assuming a single space between words. This mirrors Minikin's
   // use of preBreak/postBreak so we can compute line widths by subtraction and avoid O(n^2) sums.
+  // baseCumulative[i] is the width up to word i (exclusive) including inter-word spaces.
   std::vector<int> baseCumulative(totalWordCount + 1, 0);
   for (size_t i = 0; i < totalWordCount; ++i) {
     baseCumulative[i + 1] = baseCumulative[i] + static_cast<int>(wordWidths[i]);
@@ -195,10 +217,12 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   // Translate Minikin penalty model into our word-based width units.
   // This sets the relative cost of hyphenation and extra lines.
   const bool justified = style == TextBlock::JUSTIFIED;
+  // Track the widest word to bound the active window in the DP.
   int maxWordWidth = 0;
   for (const auto width : wordWidths) {
     maxWordWidth = std::max(maxWordWidth, static_cast<int>(width));
   }
+  // Hyphen penalty scales with line width and space width to stay proportional to layout size.
   int64_t hyphenPenalty = static_cast<int64_t>(std::max(spaceWidth, 1) * pageWidth) / 2;
   if (justified) {
     // hyphenPenalty *= 0.25f;
@@ -219,6 +243,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
   // Precompute hyphenation break info per word so we can reserve candidate storage
   // and avoid repeated hyphenation work in the inner loop.
+  // We also precompute fallback breakpoints for oversized words with no hyphenation.
   std::vector<std::vector<Hyphenator::BreakInfo>> hyphenBreaksPerWord(totalWordCount);
   std::vector<std::vector<Hyphenator::BreakInfo>> fallbackBreaksPerWord(totalWordCount);
   size_t extraCandidateCount = 0;
@@ -239,6 +264,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   for (size_t i = 0; i < totalWordCount; ++i) {
     const std::string& word = *wordPtrs[i];
     if (hyphenationEnabled) {
+      // Language-aware breakpoints (if enabled).
       hyphenBreaksPerWord[i] = Hyphenator::breakOffsets(word, /*includeFallback=*/false);
       extraCandidateCount += hyphenBreaksPerWord[i].size();
     }
@@ -260,6 +286,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
   auto pushBoundaryCandidate = [&](const size_t wordIndex) {
     // Word boundary candidates represent legal break points between words.
+    // For wordIndex==0 we insert a synthetic start boundary.
     OptimalBreakCandidate candidate;
     candidate.wordIndex = wordIndex;
     candidate.byteOffset = 0;
@@ -299,6 +326,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
       const size_t wordSize = word.size();
       const bool wordHasSoftHyphen = containsSoftHyphen(word);
       // Cache prefix widths by byte offset to avoid repeated substring measurement.
+      // This is an inner-loop optimization: each hyphen break references a byte offset.
       intraCandidates.clear();
       intraCandidates.reserve(hyphenBreaks.size() + fallbackBreaks.size());
       prefixNoHyphenWidths.resize(wordSize);
@@ -345,7 +373,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 
       // Build intra-word candidates from breakInfos. This keeps the generation logic in one place
       // while allowing different penalties.
-      auto appendIntraCandidates = [&](const std::vector<Hyphenator::BreakInfo>& breakInfos, const float penalty) {
+      auto appendIntraCandidates = [&](const std::vector<Hyphenator::BreakInfo>& breakInfos, const int64_t penalty) {
         for (const auto& info : breakInfos) {
           if (info.byteOffset == 0 || info.byteOffset >= wordSize) {
             continue;
@@ -398,6 +426,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   breaksData.push_back({0, 0, 0});
 
   // "active" tracks the earliest viable start candidate for the current line.
+  // We advance it when earlier candidates would force a line to be too wide.
   size_t active = 0;
   const int maxShrink = justified ? (spaceWidth / SHRINKABILITY_DENOM) : 0;
 
@@ -408,9 +437,11 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     size_t bestPrev = 0;
 
     // Skip start candidates that would force a line to be wildly overfull.
-    const int maxLineWidth = pageWidth + std::max(maxWordWidth, spaceWidth);
     while (active < i) {
       const int lineWidth = candidates[i].postBreak - candidates[active].preBreak;
+      const int spaces = candidates[i].postSpaceCount - candidates[active].preSpaceCount;
+      const int shrinkLimit = justified ? (maxShrink * spaces) : 0;
+      const int maxLineWidth = pageWidth + std::max(maxWordWidth, shrinkLimit);
       if (lineWidth <= maxLineWidth) {
         break;
       }
@@ -425,7 +456,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     // "j" iterates candidates for the beginning of the line, starting at the active window.
     // This is the O(n^2) core of the algorithm, pruned by "active" and "bestLowerBound".
     for (size_t j = active; j < i; ++j) {
-      const float jScore = breaksData[j].score;
+      const int64_t jScore = breaksData[j].score;
       if (jScore + bestLowerBound >= best) {
         // If this start cannot beat the best score, skip it.
         continue;
@@ -474,7 +505,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
         bestLowerBound = widthScore;
       }
 
-      const float score = jScore + widthScore + additionalPenalty;
+      const int64_t score = jScore + widthScore + additionalPenalty;
       if (score <= best) {
         best = score;
         bestPrev = j;
@@ -519,36 +550,49 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     const size_t consumed = consumedOffsets[candidate.wordIndex];
     const size_t relativeOffset = candidate.byteOffset - consumed;
 
-    if (!splitWordAtIndex(currentIndex, relativeOffset, candidate.insertHyphen, renderer, fontId, wordWidths)) {
+    if (!splitWordAtIndex(currentIndex, relativeOffset, candidate.insertHyphen, renderer, fontId, wordWidths,
+                          baseIndex)) {
       // Fall back to breaking after the whole word if the split fails.
-      lineBreakIndices.push_back(currentIndex + 1);
+      lineBreakIndices.push_back(candidate.wordIndex + indexShift + 1);
       continue;
     }
 
     // Track how much of the original word has already been consumed by prior splits.
     consumedOffsets[candidate.wordIndex] = candidate.byteOffset;
+    const size_t breakAfterPrefix = candidate.wordIndex + indexShift + 1;
     indexShift += 1;
-    lineBreakIndices.push_back(currentIndex + 1);
+    lineBreakIndices.push_back(breakAfterPrefix);
   }
 
   return lineBreakIndices;
 }
 
 void ParsedText::applyParagraphIndent() {
-  if (extraParagraphSpacing || startIndex != 0 || words.empty()) {
+  if (extraParagraphSpacing || indentApplied || startIndex != 0 || words.empty()) {
     return;
   }
 
   if (style == TextBlock::JUSTIFIED || style == TextBlock::LEFT_ALIGN) {
     words.front().insert(0, "\xe2\x80\x83");
+    indentApplied = true;
   }
 }
 
 bool ParsedText::splitWordAtIndex(const size_t wordIndex, size_t splitByteOffset, bool insertHyphen,
                                   const GfxRenderer& renderer, const int fontId,
-                                  std::vector<uint16_t>& wordWidths) {
+                                  std::vector<uint16_t>& wordWidths, const size_t baseIndex) {
   // This helper applies an explicit split chosen by the optimal breaker.
+  // It mutates the words and styles vectors and updates the cached word widths.
   if (wordIndex >= words.size()) {
+    return false;
+  }
+
+  if (wordIndex < baseIndex) {
+    return false;
+  }
+
+  const size_t widthIndex = wordIndex - baseIndex;
+  if (widthIndex >= wordWidths.size()) {
     return false;
   }
 
@@ -560,6 +604,7 @@ bool ParsedText::splitWordAtIndex(const size_t wordIndex, size_t splitByteOffset
   }
 
   // Split the word into prefix and remainder and insert a visible hyphen if requested.
+  // The prefix is kept in place; the remainder becomes a new word after it.
   std::string remainder = word.substr(splitByteOffset);
   word.resize(splitByteOffset);
   if (insertHyphen) {
@@ -572,9 +617,9 @@ bool ParsedText::splitWordAtIndex(const size_t wordIndex, size_t splitByteOffset
   wordStyles.insert(wordStyles.begin() + static_cast<std::ptrdiff_t>(wordIndex + 1), style);
 
   // Update cached widths for both fragments to keep later layout consistent.
-  wordWidths[wordIndex] = prefixWidth;
+  wordWidths[widthIndex] = prefixWidth;
   const uint16_t remainderWidth = measureWordWidth(renderer, fontId, words[wordIndex + 1], style);
-  wordWidths.insert(wordWidths.begin() + wordIndex + 1, remainderWidth);
+  wordWidths.insert(wordWidths.begin() + static_cast<std::ptrdiff_t>(widthIndex + 1), remainderWidth);
   return true;
 }
 
@@ -587,6 +632,7 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   const size_t lineWordCount = lineBreak - lastBreakAt;
 
   // Calculate total word width for this line using prefix sums.
+  // This is O(1) vs summing each line independently.
   const int lineWordWidthSum = wordWidthPrefix[lineBreak] - wordWidthPrefix[lastBreakAt];
 
   // Calculate spacing
@@ -597,7 +643,8 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   int spacing = spaceWidth;
   const bool isLastLine = breakIndex == lineBreakIndices.size() - 1;
 
-  if (style == TextBlock::JUSTIFIED && !isLastLine && gapCount > 0) {
+  if (style == TextBlock::JUSTIFIED && !isLastLine && gapCount > 0 && spareSpace >= 0) {
+    // Only stretch spaces when there is spare space to distribute.
     spacing = spareSpace / gapCount;
   }
 
@@ -610,15 +657,19 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   }
 
   // Pre-calculate X positions for words
-  std::list<uint16_t> lineXPos;
+  // We build per-line x positions and word lists and move them into the TextBlock.
+  std::vector<uint16_t> lineXPos;
+  lineXPos.reserve(lineWordCount);
   for (size_t i = lastBreakAt; i < lineBreak; i++) {
     const uint16_t currentWordWidth = wordWidths[i];
     lineXPos.push_back(xpos);
     xpos += currentWordWidth + spacing;
   }
 
-  std::list<std::string> lineWords;
-  std::list<EpdFontFamily::Style> lineWordStyles;
+  std::vector<std::string> lineWords;
+  std::vector<EpdFontFamily::Style> lineWordStyles;
+  lineWords.reserve(lineWordCount);
+  lineWordStyles.reserve(lineWordCount);
   for (size_t i = lastBreakAt; i < lineBreak; ++i) {
     const size_t idx = baseIndex + i;
     lineWords.push_back(std::move(words[idx]));

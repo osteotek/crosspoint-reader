@@ -2,7 +2,6 @@
 #include <chrono>
 #include <cstddef>
 #include <iostream>
-#include <list>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -43,7 +42,7 @@ std::vector<std::string> buildWordList(const std::vector<std::string>& baseWords
   return words;
 }
 
-std::string joinWords(const std::list<std::string>& words) {
+std::string joinWords(const std::vector<std::string>& words) {
   std::string result;
   bool first = true;
   for (const auto& word : words) {
@@ -97,7 +96,7 @@ int main(int argc, char** argv) {
   bool hyphenationEnabled = true;
   bool includeLastLine = true;
   size_t samplePageLineLimit = 30;
-  uint8_t hyphenAggressiveness = 2;  // 0=conservative, 1=normal, 2=aggressive
+  uint8_t hyphenAggressiveness = 1;  // 0=conservative, 1=normal, 2=aggressive
 
   if (argc > 1) {
     iterations = std::stoi(argv[1]);

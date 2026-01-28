@@ -2,9 +2,9 @@
 #include <EpdFontFamily.h>
 #include <SdFat.h>
 
-#include <list>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "Block.h"
 
@@ -19,14 +19,14 @@ class TextBlock final : public Block {
   };
 
  private:
-  std::list<std::string> words;
-  std::list<uint16_t> wordXpos;
-  std::list<EpdFontFamily::Style> wordStyles;
+  std::vector<std::string> words;
+  std::vector<uint16_t> wordXpos;
+  std::vector<EpdFontFamily::Style> wordStyles;
   Style style;
 
  public:
-  explicit TextBlock(std::list<std::string> words, std::list<uint16_t> word_xpos,
-                     std::list<EpdFontFamily::Style> word_styles, const Style style)
+  explicit TextBlock(std::vector<std::string> words, std::vector<uint16_t> word_xpos,
+                     std::vector<EpdFontFamily::Style> word_styles, const Style style)
       : words(std::move(words)), wordXpos(std::move(word_xpos)), wordStyles(std::move(word_styles)), style(style) {}
   ~TextBlock() override = default;
   void setStyle(const Style style) { this->style = style; }

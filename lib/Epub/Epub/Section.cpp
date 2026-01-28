@@ -189,14 +189,30 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
                          viewportHeight, hyphenationEnabled, hyphenationAggressiveness);
   std::vector<uint32_t> lut = {};
+  constexpr size_t kPageBufferMax = 4;
+  std::vector<std::unique_ptr<Page>> pageBuffer;
+  pageBuffer.reserve(kPageBufferMax);
+
+  auto flushPageBuffer = [this, &lut, &pageBuffer]() {
+    for (auto& page : pageBuffer) {
+      lut.emplace_back(this->onPageComplete(std::move(page)));
+    }
+    pageBuffer.clear();
+  };
 
   ChapterHtmlSlimParser visitor(
       tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
       viewportHeight, hyphenationEnabled, hyphenationAggressiveness,
-      [this, &lut](std::unique_ptr<Page> page) { lut.emplace_back(this->onPageComplete(std::move(page))); },
+      [this, &pageBuffer, &flushPageBuffer](std::unique_ptr<Page> page) {
+        pageBuffer.emplace_back(std::move(page));
+        if (pageBuffer.size() >= kPageBufferMax) {
+          flushPageBuffer();
+        }
+      },
       progressFn);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   success = visitor.parseAndBuildPages();
+  flushPageBuffer();
 
   SdMan.remove(tmpHtmlPath.c_str());
   if (!success) {

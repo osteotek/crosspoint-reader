@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include <list>
 #include <string>
+#include <vector>
 
 #include <EpdFontFamily.h>
 
@@ -15,5 +15,5 @@ class TextBlock {
     RIGHT_ALIGN = 3,
   };
 
-  explicit TextBlock(std::list<std::string>, std::list<uint16_t>, std::list<EpdFontFamily::Style>, Style) {}
+  explicit TextBlock(std::vector<std::string>, std::vector<uint16_t>, std::vector<EpdFontFamily::Style>, Style) {}
 };

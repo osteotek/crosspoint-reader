@@ -11,16 +11,8 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
     return;
   }
 
-  auto wordIt = words.begin();
-  auto wordStylesIt = wordStyles.begin();
-  auto wordXposIt = wordXpos.begin();
-
   for (size_t i = 0; i < words.size(); i++) {
-    renderer.drawText(fontId, *wordXposIt + x, y, wordIt->c_str(), true, *wordStylesIt);
-
-    std::advance(wordIt, 1);
-    std::advance(wordStylesIt, 1);
-    std::advance(wordXposIt, 1);
+    renderer.drawText(fontId, wordXpos[i] + x, y, words[i].c_str(), true, wordStyles[i]);
   }
 }
 
@@ -45,9 +37,9 @@ bool TextBlock::serialize(FsFile& file) const {
 
 std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   uint16_t wc;
-  std::list<std::string> words;
-  std::list<uint16_t> wordXpos;
-  std::list<EpdFontFamily::Style> wordStyles;
+  std::vector<std::string> words;
+  std::vector<uint16_t> wordXpos;
+  std::vector<EpdFontFamily::Style> wordStyles;
   Style style;
 
   // Word count
