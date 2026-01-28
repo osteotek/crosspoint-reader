@@ -71,6 +71,14 @@ class CrossPointSettings {
     PARAGRAPH_ALIGNMENT_COUNT
   };
 
+  // Hyphenation aggressiveness
+  enum HYPHENATION_AGGRESSIVENESS {
+    HYPHENATION_CONSERVATIVE = 0,
+    HYPHENATION_NORMAL = 1,
+    HYPHENATION_AGGRESSIVE = 2,
+    HYPHENATION_AGGRESSIVENESS_COUNT
+  };
+
   // Auto-sleep timeout options (in minutes)
   enum SLEEP_TIMEOUT {
     SLEEP_1_MIN = 0,
@@ -126,6 +134,7 @@ class CrossPointSettings {
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
   uint8_t hyphenationEnabled = 0;
+  uint8_t hyphenationAggressiveness = HYPHENATION_NORMAL;
 
   // Reader screen margin settings
   uint8_t screenMargin = 5;

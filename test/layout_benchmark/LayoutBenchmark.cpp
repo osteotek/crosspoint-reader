@@ -56,11 +56,15 @@ std::string joinWords(const std::list<std::string>& words) {
   return result;
 }
 
+size_t countHyphens(const std::string& text) {
+  return static_cast<size_t>(std::count(text.begin(), text.end(), '-'));
+}
+
 size_t runLayoutOnce(const std::vector<std::string>& words, const GfxRenderer& renderer, const int fontId,
-                     const int viewportWidth, const bool hyphenationEnabled, const bool includeLastLine,
-                     std::string* sampleLineOut = nullptr, std::vector<std::string>* sampleLinesOut = nullptr,
-                     const size_t sampleLineLimit = 0) {
-  ParsedText text(TextBlock::JUSTIFIED, /*extraParagraphSpacing=*/false, hyphenationEnabled);
+                     const int viewportWidth, const bool hyphenationEnabled, const uint8_t hyphenAggressiveness,
+                     const bool includeLastLine, std::string* sampleLineOut = nullptr,
+                     std::vector<std::string>* sampleLinesOut = nullptr, const size_t sampleLineLimit = 0) {
+  ParsedText text(TextBlock::JUSTIFIED, /*extraParagraphSpacing=*/false, hyphenationEnabled, hyphenAggressiveness);
   for (const auto& word : words) {
     text.addWord(word, EpdFontFamily::REGULAR);
   }
@@ -92,7 +96,8 @@ int main(int argc, char** argv) {
   int viewportWidth = 360;
   bool hyphenationEnabled = true;
   bool includeLastLine = true;
-  size_t samplePageLineLimit = 20;
+  size_t samplePageLineLimit = 100;
+  uint8_t hyphenAggressiveness = 2;  // 0=conservative, 1=normal, 2=aggressive
 
   if (argc > 1) {
     iterations = std::stoi(argv[1]);
@@ -111,6 +116,9 @@ int main(int argc, char** argv) {
   }
   if (argc > 6) {
     samplePageLineLimit = static_cast<size_t>(std::stoul(argv[6]));
+  }
+  if (argc > 7) {
+    hyphenAggressiveness = static_cast<uint8_t>(std::stoul(argv[7]));
   }
 
   const std::string sampleText =
@@ -136,7 +144,8 @@ int main(int argc, char** argv) {
   std::vector<std::string> samplePageLines;
   for (int i = 0; i < warmupIterations; ++i) {
     const size_t lines =
-        runLayoutOnce(words, renderer, kFontId, viewportWidth, hyphenationEnabled, includeLastLine,
+        runLayoutOnce(words, renderer, kFontId, viewportWidth, hyphenationEnabled, hyphenAggressiveness,
+                      includeLastLine,
                       (i == 0) ? &sampleLine : nullptr, (i == 0) ? &samplePageLines : nullptr,
                       (i == 0) ? samplePageLineLimit : 0);
     if (i == 0) {
@@ -148,7 +157,8 @@ int main(int argc, char** argv) {
   const auto start = std::chrono::high_resolution_clock::now();
   size_t totalLines = 0;
   for (int i = 0; i < iterations; ++i) {
-    totalLines += runLayoutOnce(words, renderer, kFontId, viewportWidth, hyphenationEnabled, includeLastLine);
+    totalLines += runLayoutOnce(words, renderer, kFontId, viewportWidth, hyphenationEnabled, hyphenAggressiveness,
+                                includeLastLine);
   }
   const auto end = std::chrono::high_resolution_clock::now();
 
@@ -162,11 +172,17 @@ int main(int argc, char** argv) {
   std::cout << "  words:      " << wordCount << "\n";
   std::cout << "  width:      " << viewportWidth << "\n";
   std::cout << "  hyphenate:  " << (hyphenationEnabled ? "on" : "off") << "\n";
+  std::cout << "  hyph_mode:  " << static_cast<int>(hyphenAggressiveness) << "\n";
   std::cout << "  avg_us:     " << avgUs << "\n";
   std::cout << "  lines:      " << totalLines << " (warmup " << warmupLines << ")\n";
   std::cout << "  sample:     " << sampleLines << " lines (warmup)\n";
   std::cout << "  sample_text: " << sampleLine << "\n";
   std::cout << "  sample_page_lines: " << samplePageLines.size() << " (limit " << samplePageLineLimit << ")\n";
+  size_t sampleHyphens = 0;
+  for (const auto& line : samplePageLines) {
+    sampleHyphens += countHyphens(line);
+  }
+  std::cout << "  sample_hyphens: " << sampleHyphens << "\n";
   for (const auto& line : samplePageLines) {
     std::cout << "  | " << line << "\n";
   }

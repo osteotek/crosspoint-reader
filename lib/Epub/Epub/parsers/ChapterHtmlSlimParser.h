@@ -37,6 +37,7 @@ class ChapterHtmlSlimParser {
   uint16_t viewportWidth;
   uint16_t viewportHeight;
   bool hyphenationEnabled;
+  uint8_t hyphenationAggressiveness;
   uint32_t pageStartMs = 0;
   uint32_t pageTotalMs = 0;
   uint32_t pageCount = 0;
@@ -57,6 +58,7 @@ class ChapterHtmlSlimParser {
                                  const float lineCompression, const bool extraParagraphSpacing,
                                  const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                  const uint16_t viewportHeight, const bool hyphenationEnabled,
+                                 const uint8_t hyphenationAggressiveness,
                                  const std::function<void(std::unique_ptr<Page>)>& completePageFn,
                                  const std::function<void(int)>& progressFn = nullptr)
       : filepath(filepath),
@@ -68,6 +70,7 @@ class ChapterHtmlSlimParser {
         viewportWidth(viewportWidth),
         viewportHeight(viewportHeight),
         hyphenationEnabled(hyphenationEnabled),
+        hyphenationAggressiveness(hyphenationAggressiveness),
         completePageFn(completePageFn),
         progressFn(progressFn) {}
   ~ChapterHtmlSlimParser() = default;

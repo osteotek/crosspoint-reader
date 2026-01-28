@@ -24,7 +24,7 @@ const SettingInfo displaySettings[displaySettingsCount] = {
     SettingInfo::Enum("Refresh Frequency", &CrossPointSettings::refreshFrequency,
                       {"1 page", "5 pages", "10 pages", "15 pages", "30 pages"})};
 
-constexpr int readerSettingsCount = 9;
+constexpr int readerSettingsCount = 10;
 const SettingInfo readerSettings[readerSettingsCount] = {
     SettingInfo::Enum("Font Family", &CrossPointSettings::fontFamily, {"Bookerly", "Noto Sans", "Open Dyslexic"}),
     SettingInfo::Enum("Font Size", &CrossPointSettings::fontSize, {"Small", "Medium", "Large", "X Large"}),
@@ -33,6 +33,8 @@ const SettingInfo readerSettings[readerSettingsCount] = {
     SettingInfo::Enum("Paragraph Alignment", &CrossPointSettings::paragraphAlignment,
                       {"Justify", "Left", "Center", "Right"}),
     SettingInfo::Toggle("Hyphenation", &CrossPointSettings::hyphenationEnabled),
+    SettingInfo::Enum("Hyphenation Aggressiveness", &CrossPointSettings::hyphenationAggressiveness,
+                      {"Conservative", "Normal", "Aggressive"}),
     SettingInfo::Enum("Reading Orientation", &CrossPointSettings::orientation,
                       {"Portrait", "Landscape CW", "Inverted", "Landscape CCW"}),
     SettingInfo::Toggle("Extra Paragraph Spacing", &CrossPointSettings::extraParagraphSpacing),

@@ -204,6 +204,17 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     // hyphenPenalty *= 0.25f;
     hyphenPenalty *= JUSTIFIED_HYPHEN_PENALTY;
   }
+  switch (hyphenationAggressiveness) {
+    case 0:  // Conservative: fewer hyphens
+      hyphenPenalty *= 2;
+      break;
+    case 2:  // Aggressive: more hyphens
+      hyphenPenalty = std::max<int64_t>(1, hyphenPenalty / 2);
+      break;
+    case 1:
+    default:
+      break;
+  }
   const int64_t linePenalty = justified ? 0 : hyphenPenalty * LINE_PENALTY_MULTIPLIER;
 
   // Precompute hyphenation break info per word so we can reserve candidate storage
