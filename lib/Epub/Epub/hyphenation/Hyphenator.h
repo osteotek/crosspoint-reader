@@ -12,9 +12,10 @@ class Hyphenator {
     size_t byteOffset;
     bool requiresInsertedHyphen;
   };
-  // Returns byte offsets where the word may be hyphenated. When includeFallback is true, all positions obeying the
-  // minimum prefix/suffix constraints are returned even if no language-specific rule matches.
-  static std::vector<BreakInfo> breakOffsets(const std::string& word, bool includeFallback);
+  // Returns byte offsets where the word may be hyphenated using strict (language + explicit) rules.
+  static std::vector<BreakInfo> breakOffsetsStrict(const std::string& word);
+  // Returns byte offsets for fallback breaks (min prefix/suffix), ignoring language-specific rules.
+  static std::vector<BreakInfo> breakOffsetsFallback(const std::string& word);
 
   // Provide a publication-level language hint (e.g. "en", "en-US", "ru") used to select hyphenation rules.
   static void setPreferredLanguage(const std::string& lang);

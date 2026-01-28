@@ -39,6 +39,11 @@ class ParsedText {
   // Word storage for the current paragraph. Words/styles are kept in parallel arrays.
   std::vector<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
+  std::vector<char> wordHasSoftHyphen;
+  std::vector<uint16_t> wordWidthsCache;
+  std::vector<char> wordWidthsValid;
+  std::vector<uint16_t> wordWidthsScratch;
+  std::vector<uint16_t> wordWidthsViewScratch;
   // Logical start of the active window in the word arrays (avoids erasing on every layout pass).
   size_t startIndex = 0;
   // Byte offset into words[startIndex] when the line break splits a word.
@@ -80,17 +85,20 @@ class ParsedText {
   std::vector<char> lineBreakInsertHyphenScratch;
 
   void applyParagraphIndent();
+  void ensureWordWidthsCached(const GfxRenderer& renderer, int fontId, size_t baseIndex, size_t count);
   // Returns line break positions for the current word slice (no word mutation).
   std::vector<size_t> computeLineBreaks(const GfxRenderer& renderer, int fontId, int pageWidth, int spaceWidth,
-                                        std::vector<uint16_t>& wordWidths, size_t baseIndex);
+                                        const std::vector<uint16_t>& wordWidths, size_t baseIndex);
+  void fillLineBreakOffsetsStrict(const std::vector<size_t>& breakCandidateIndices,
+                                  const std::vector<OptimalBreakCandidate>& candidates,
+                                  std::vector<size_t>& lineBreakIndices);
+  void fillLineBreakOffsetsFallback(size_t breakCount);
   // Builds a single line TextBlock from the computed line breaks.
   void extractLine(size_t breakIndex, int pageWidth, int spaceWidth, const GfxRenderer& renderer, int fontId,
                    const std::vector<uint16_t>& wordWidths, const std::vector<size_t>& lineBreakIndices,
                    const std::vector<size_t>& lineBreakOffsets, const std::vector<char>& lineBreakInsertHyphen,
                    size_t baseIndex, size_t baseOffset,
                    const std::function<void(std::shared_ptr<TextBlock>)>& processLine);
-  // Measures widths of the active word slice (used by the line breaker).
-  std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId, size_t baseIndex);
 
  public:
   explicit ParsedText(const TextBlock::Style style, const bool extraParagraphSpacing,

@@ -50,7 +50,7 @@ std::vector<Hyphenator::BreakInfo> buildExplicitBreakInfos(const std::vector<Cod
 
 }  // namespace
 
-std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsets(const std::string& word, const bool includeFallback) {
+std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsetsStrict(const std::string& word) {
   if (word.empty()) {
     return {};
   }
@@ -72,15 +72,6 @@ std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsets(const std::string& w
     indexes = hyphenator->breakIndexes(cps);
   }
 
-  // Only add fallback breaks if needed
-  if (includeFallback && indexes.empty()) {
-    const size_t minPrefix = hyphenator ? hyphenator->minPrefix() : LiangWordConfig::kDefaultMinPrefix;
-    const size_t minSuffix = hyphenator ? hyphenator->minSuffix() : LiangWordConfig::kDefaultMinSuffix;
-    for (size_t idx = minPrefix; idx + minSuffix <= cps.size(); ++idx) {
-      indexes.push_back(idx);
-    }
-  }
-
   if (indexes.empty()) {
     return {};
   }
@@ -88,6 +79,34 @@ std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsets(const std::string& w
   std::vector<Hyphenator::BreakInfo> breaks;
   breaks.reserve(indexes.size());
   for (const size_t idx : indexes) {
+    breaks.push_back({byteOffsetForIndex(cps, idx), true});
+  }
+
+  return breaks;
+}
+
+std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsetsFallback(const std::string& word) {
+  if (word.empty()) {
+    return {};
+  }
+
+  auto cps = collectCodepoints(word);
+  trimSurroundingPunctuationAndFootnote(cps);
+  if (cps.empty()) {
+    return {};
+  }
+
+  const auto* hyphenator = cachedHyphenator_;
+  const size_t minPrefix = hyphenator ? hyphenator->minPrefix() : LiangWordConfig::kDefaultMinPrefix;
+  const size_t minSuffix = hyphenator ? hyphenator->minSuffix() : LiangWordConfig::kDefaultMinSuffix;
+
+  std::vector<Hyphenator::BreakInfo> breaks;
+  if (minPrefix + minSuffix > cps.size()) {
+    return breaks;
+  }
+
+  breaks.reserve(cps.size());
+  for (size_t idx = minPrefix; idx + minSuffix <= cps.size(); ++idx) {
     breaks.push_back({byteOffsetForIndex(cps, idx), true});
   }
 
