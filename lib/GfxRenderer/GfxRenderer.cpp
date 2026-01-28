@@ -5,6 +5,7 @@
 void GfxRenderer::insertFont(const int fontId, EpdFontFamily font) {
   fontMap.insert({fontId, font});
   spaceWidthCache.clear();
+  hyphenWidthCache.clear();
   ascenderCache.clear();
   lineHeightCache.clear();
 }
@@ -512,6 +513,22 @@ int GfxRenderer::getSpaceWidth(const int fontId, const EpdFontFamily::Style styl
 
   const int width = fontMap.at(fontId).getGlyph(' ', style)->advanceX;
   spaceWidthCache.emplace(fontId, width);
+  return width;
+}
+
+int GfxRenderer::getHyphenWidth(const int fontId) const {
+  if (fontMap.count(fontId) == 0) {
+    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    return 0;
+  }
+
+  const auto cached = hyphenWidthCache.find(fontId);
+  if (cached != hyphenWidthCache.end()) {
+    return cached->second;
+  }
+
+  const int width = getTextWidth(fontId, "-");
+  hyphenWidthCache.emplace(fontId, width);
   return width;
 }
 

@@ -276,6 +276,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   startNewTextBlock((TextBlock::Style)this->paragraphAlignment);
 
   const XML_Parser parser = XML_ParserCreate(nullptr);
+  constexpr size_t kParseBufferSize = 8192;
   int done;
 
   if (!parser) {
@@ -299,7 +300,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   XML_SetCharacterDataHandler(parser, characterData);
 
   do {
-    void* const buf = XML_GetBuffer(parser, 1024);
+    void* const buf = XML_GetBuffer(parser, kParseBufferSize);
     if (!buf) {
       Serial.printf("[%lu] [EHP] Couldn't allocate memory for buffer\n", millis());
       XML_StopParser(parser, XML_FALSE);                // Stop any pending processing
@@ -310,7 +311,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
       return false;
     }
 
-    const size_t len = file.read(buf, 1024);
+    const size_t len = file.read(buf, kParseBufferSize);
 
     if (len == 0 && file.available() > 0) {
       Serial.printf("[%lu] [EHP] File read error\n", millis());

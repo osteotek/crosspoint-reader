@@ -33,6 +33,7 @@ class GfxRenderer {
   uint8_t* bwBufferChunks[BW_BUFFER_NUM_CHUNKS] = {nullptr};
   std::map<int, EpdFontFamily> fontMap;
   mutable std::unordered_map<int, int> spaceWidthCache;
+  mutable std::unordered_map<int, int> hyphenWidthCache;
   mutable std::unordered_map<int, int> ascenderCache;
   mutable std::unordered_map<int, int> lineHeightCache;
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, const int* y, bool pixelState,
@@ -90,6 +91,7 @@ class GfxRenderer {
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   int getSpaceWidth(int fontId) const;
   int getSpaceWidth(int fontId, EpdFontFamily::Style style) const;
+  int getHyphenWidth(int fontId) const;
   int getFontAscenderSize(int fontId) const;
   int getFontAscenderSize(int fontId, EpdFontFamily::Style style) const;
   int getLineHeight(int fontId) const;

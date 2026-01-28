@@ -63,6 +63,7 @@ class GfxRenderer {
   }
 
   int getSpaceWidth(const int fontId) const { return getTextWidth(fontId, " "); }
+  int getHyphenWidth(const int fontId) const { return getTextWidth(fontId, "-"); }
 
  private:
   std::map<int, EpdFontFamily> fontMap;
