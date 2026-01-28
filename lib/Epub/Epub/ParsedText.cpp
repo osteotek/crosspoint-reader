@@ -104,9 +104,14 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   }
 
   if (startIndex >= words.size()) {
-    words.clear();
-    wordStyles.clear();
-    startIndex = 0;
+    startIndex = words.size();
+  } else {
+    constexpr size_t kCompactionThreshold = 256;
+    if (startIndex >= kCompactionThreshold && startIndex >= words.size() / 2) {
+      words.erase(words.begin(), words.begin() + static_cast<std::ptrdiff_t>(startIndex));
+      wordStyles.erase(wordStyles.begin(), wordStyles.begin() + static_cast<std::ptrdiff_t>(startIndex));
+      startIndex = 0;
+    }
   }
 }
 
