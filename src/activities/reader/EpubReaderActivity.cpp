@@ -354,6 +354,9 @@ void EpubReaderActivity::renderScreen() {
       }
       cachedChapterTotalPageCount = 0;  // resets to 0 to prevent reading cached progress again
     }
+    pageReadTotalMs = 0;
+    pageRenderTotalMs = 0;
+    pageRenderCount = 0;
   }
 
   renderer.clearScreen();
@@ -375,16 +378,28 @@ void EpubReaderActivity::renderScreen() {
   }
 
   {
+    const uint32_t readStartMs = millis();
     auto p = section->loadPageFromSectionFile();
+    const uint32_t readElapsed = millis() - readStartMs;
     if (!p) {
       Serial.printf("[%lu] [ERS] Failed to load page from SD - clearing section cache\n", millis());
       section->clearCache();
       section.reset();
       return renderScreen();
     }
-    const auto start = millis();
+    pageReadTotalMs += readElapsed;
+    const uint32_t renderStartMs = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
-    Serial.printf("[%lu] [ERS] Rendered page in %dms\n", millis(), millis() - start);
+    pageRenderTotalMs += millis() - renderStartMs;
+    pageRenderCount++;
+    constexpr uint32_t kSampleInterval = 10;
+    if (pageRenderCount % kSampleInterval == 0) {
+      const uint32_t avgRead = pageReadTotalMs / pageRenderCount;
+      const uint32_t avgRender = pageRenderTotalMs / pageRenderCount;
+      Serial.printf("[%lu] [ERS] Avg page read: %lu ms, render: %lu ms over %lu pages\n", millis(),
+                    static_cast<unsigned long>(avgRead), static_cast<unsigned long>(avgRender),
+                    static_cast<unsigned long>(pageRenderCount));
+    }
   }
 
   FsFile f;

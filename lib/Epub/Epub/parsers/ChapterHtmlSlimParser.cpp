@@ -230,9 +230,11 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   // Spotted when reading Intermezzo, there are some really long text blocks in there.
   if (self->currentTextBlock->size() > 750) {
     Serial.printf("[%lu] [EHP] Text block too long, splitting into multiple pages\n", millis());
+    const uint32_t layoutStartMs = millis();
     self->currentTextBlock->layoutAndExtractLines(
         self->renderer, self->fontId, self->viewportWidth,
         [self](const std::shared_ptr<TextBlock>& textBlock) { self->addLineToPage(textBlock); }, false);
+    self->layoutTotalMs += millis() - layoutStartMs;
   }
 }
 
@@ -367,6 +369,9 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     const uint32_t avgMs = pageTotalMs / pageCount;
     Serial.printf("[%lu] [EHP] Avg page build: %lu ms over %lu pages (%s)\n", millis(),
                   static_cast<unsigned long>(avgMs), static_cast<unsigned long>(pageCount), filepath.c_str());
+    const uint32_t layoutAvgMs = layoutTotalMs / pageCount;
+    Serial.printf("[%lu] [EHP] Avg layout: %lu ms over %lu pages (%s)\n", millis(),
+                  static_cast<unsigned long>(layoutAvgMs), static_cast<unsigned long>(pageCount), filepath.c_str());
   }
 
   return true;
@@ -400,9 +405,11 @@ void ChapterHtmlSlimParser::makePages() {
   }
 
   const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
+  const uint32_t layoutStartMs = millis();
   currentTextBlock->layoutAndExtractLines(
       renderer, fontId, viewportWidth,
       [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); });
+  layoutTotalMs += millis() - layoutStartMs;
   // Extra paragraph spacing if enabled
   if (extraParagraphSpacing) {
     currentPageNextY += lineHeight / 2;

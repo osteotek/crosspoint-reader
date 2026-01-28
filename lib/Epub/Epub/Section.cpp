@@ -21,10 +21,13 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
   }
 
   const uint32_t position = file.position();
+  const uint32_t writeStartMs = millis();
   if (!page->serialize(file)) {
     Serial.printf("[%lu] [SCT] Failed to serialize page %d\n", millis(), pageCount);
     return 0;
   }
+  pageWriteTotalMs += millis() - writeStartMs;
+  pageWriteCount++;
   Serial.printf("[%lu] [SCT] Page %d processed\n", millis(), pageCount);
 
   pageCount++;
@@ -187,6 +190,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   if (!SdMan.openFileForWrite("SCT", filePath, file)) {
     return false;
   }
+  pageWriteTotalMs = 0;
+  pageWriteCount = 0;
   writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, viewportWidth,
                          viewportHeight, hyphenationEnabled, hyphenationAggressiveness);
   std::vector<uint32_t> lut = {};
@@ -246,6 +251,11 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   serialization::writePod(file, pageCount);
   serialization::writePod(file, lutOffset);
   file.close();
+  if (pageWriteCount > 0) {
+    const uint32_t avgWriteMs = pageWriteTotalMs / pageWriteCount;
+    Serial.printf("[%lu] [SCT] Avg page write: %lu ms over %u pages\n", millis(),
+                  static_cast<unsigned long>(avgWriteMs), static_cast<unsigned int>(pageWriteCount));
+  }
   return true;
 }
 

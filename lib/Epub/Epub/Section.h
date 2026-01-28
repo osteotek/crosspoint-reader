@@ -13,6 +13,8 @@ class Section {
   GfxRenderer& renderer;
   std::string filePath;
   FsFile file;
+  uint32_t pageWriteTotalMs = 0;
+  uint16_t pageWriteCount = 0;
 
   void writeSectionFileHeader(int fontId, float lineCompression, bool extraParagraphSpacing, uint8_t paragraphAlignment,
                               uint16_t viewportWidth, uint16_t viewportHeight, bool hyphenationEnabled,

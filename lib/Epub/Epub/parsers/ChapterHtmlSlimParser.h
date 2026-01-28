@@ -42,6 +42,7 @@ class ChapterHtmlSlimParser {
   uint32_t pageTotalMs = 0;
   uint32_t pageCount = 0;
   bool pageTimerActive = false;
+  uint32_t layoutTotalMs = 0;
 
   void startNewTextBlock(TextBlock::Style style);
   void flushPartWordBuffer();

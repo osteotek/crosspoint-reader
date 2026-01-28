@@ -18,6 +18,9 @@ class EpubReaderActivity final : public ActivityWithSubactivity {
   int cachedSpineIndex = 0;
   int cachedChapterTotalPageCount = 0;
   bool updateRequired = false;
+  uint32_t pageReadTotalMs = 0;
+  uint32_t pageRenderTotalMs = 0;
+  uint32_t pageRenderCount = 0;
   const std::function<void()> onGoBack;
   const std::function<void()> onGoHome;
 
