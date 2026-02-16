@@ -4,6 +4,7 @@
 
 #include "EpubReaderMenuActivity.h"
 #include "activities/ActivityWithSubactivity.h"
+#include "util/ButtonNavigator.h"
 
 class EpubReaderActivity final : public ActivityWithSubactivity {
   std::shared_ptr<Epub> epub;
@@ -21,6 +22,7 @@ class EpubReaderActivity final : public ActivityWithSubactivity {
   bool pendingSubactivityExit = false;  // Defer subactivity exit to avoid use-after-free
   bool pendingGoHome = false;           // Defer go home to avoid race condition with display task
   bool skipNextButtonCheck = false;     // Skip button processing for one frame after subactivity exit
+  ButtonNavigator buttonNavigator;  // Handles repeat-aware page navigation input.
   const std::function<void()> onGoBack;
   const std::function<void()> onGoHome;
 
