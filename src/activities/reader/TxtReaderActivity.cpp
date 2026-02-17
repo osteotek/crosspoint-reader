@@ -95,17 +95,39 @@ void TxtReaderActivity::loop() {
 
   // When long-press chapter skip is disabled, turn pages on press instead of release.
   const bool usePressForPageTurn = !SETTINGS.longPressChapterSkip;
-  const bool prevTriggered = usePressForPageTurn ? (mappedInput.wasPressed(MappedInputManager::Button::PageBack) ||
-                                                    mappedInput.wasPressed(MappedInputManager::Button::Left))
-                                                 : (mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
-                                                    mappedInput.wasReleased(MappedInputManager::Button::Left));
+  const std::vector<MappedInputManager::Button> prevButtons = {MappedInputManager::Button::PageBack,
+                                                               MappedInputManager::Button::Left};
+  const std::vector<MappedInputManager::Button> nextButtons = {MappedInputManager::Button::PageForward,
+                                                               MappedInputManager::Button::Right};
+  bool prevTriggered = false;
+  bool nextTriggered = false;
+  const bool prevReleased = mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
+                            mappedInput.wasReleased(MappedInputManager::Button::Left);
+  const bool nextReleased = mappedInput.wasReleased(MappedInputManager::Button::PageForward) ||
+                            mappedInput.wasReleased(MappedInputManager::Button::Right);
+
+  if (usePressForPageTurn) {
+    if (prevReleased) {
+      buttonNavigator.onRelease(prevButtons, [] {});
+    }
+    if (nextReleased) {
+      buttonNavigator.onRelease(nextButtons, [] {});
+    }
+    if (!prevReleased) {
+      buttonNavigator.onPressAndContinuous(prevButtons, [&prevTriggered] { prevTriggered = true; });
+    }
+    if (!nextReleased) {
+      buttonNavigator.onPressAndContinuous(nextButtons, [&nextTriggered] { nextTriggered = true; });
+    }
+  } else {
+    buttonNavigator.onRelease(prevButtons, [&prevTriggered] { prevTriggered = true; });
+    buttonNavigator.onRelease(nextButtons, [&nextTriggered] { nextTriggered = true; });
+  }
   const bool powerPageTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
                              mappedInput.wasReleased(MappedInputManager::Button::Power);
-  const bool nextTriggered = usePressForPageTurn
-                                 ? (mappedInput.wasPressed(MappedInputManager::Button::PageForward) || powerPageTurn ||
-                                    mappedInput.wasPressed(MappedInputManager::Button::Right))
-                                 : (mappedInput.wasReleased(MappedInputManager::Button::PageForward) || powerPageTurn ||
-                                    mappedInput.wasReleased(MappedInputManager::Button::Right));
+  if (powerPageTurn) {
+    nextTriggered = true;
+  }
 
   if (!prevTriggered && !nextTriggered) {
     return;

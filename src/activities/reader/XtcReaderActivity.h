@@ -10,12 +10,14 @@
 #include <Xtc.h>
 
 #include "activities/ActivityWithSubactivity.h"
+#include "util/ButtonNavigator.h"
 
 class XtcReaderActivity final : public ActivityWithSubactivity {
   std::shared_ptr<Xtc> xtc;
 
   uint32_t currentPage = 0;
   int pagesUntilFullRefresh = 0;
+  ButtonNavigator buttonNavigator;
 
   const std::function<void()> onGoBack;
   const std::function<void()> onGoHome;

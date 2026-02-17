@@ -6,6 +6,7 @@
 
 #include "CrossPointSettings.h"
 #include "activities/ActivityWithSubactivity.h"
+#include "util/ButtonNavigator.h"
 
 class TxtReaderActivity final : public ActivityWithSubactivity {
   std::unique_ptr<Txt> txt;
@@ -13,6 +14,7 @@ class TxtReaderActivity final : public ActivityWithSubactivity {
   int currentPage = 0;
   int totalPages = 1;
   int pagesUntilFullRefresh = 0;
+  ButtonNavigator buttonNavigator;
 
   const std::function<void()> onGoBack;
   const std::function<void()> onGoHome;
