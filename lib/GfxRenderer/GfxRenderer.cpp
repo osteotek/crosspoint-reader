@@ -101,13 +101,14 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
 }
 
 int GfxRenderer::getTextWidth(const int fontId, const char* text, const CrossPointFont::Style style) const {
-  if (fontMap.count(fontId) == 0) {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
   int w = 0, h = 0;
-  fontMap.at(fontId).getTextDimensions(text, style, &w, &h);
+  fontIt->second.getTextDimensions(text, style, &w, &h);
   return w;
 }
 
@@ -124,11 +125,12 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     return;
   }
 
-  if (fontMap.count(fontId) == 0) {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return;
   }
-  const auto cpFont = fontMap.at(fontId);
+  const auto& cpFont = fontIt->second;
 
   // TODO: REPLACE FONT_SCALE
   int xpos = x;
@@ -732,52 +734,58 @@ int GfxRenderer::getScreenHeight() const {
 }
 
 int GfxRenderer::getSpaceWidth(const int fontId) const {
-  if (fontMap.count(fontId) == 0) {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
-  return fontMap.at(fontId).getGlyph(' ', CrossPointFont::Style::REGULAR)->xAdvance / FONT_SCALE;
+  return fontIt->second.getGlyph(' ', CrossPointFont::Style::REGULAR)->xAdvance / FONT_SCALE;
 }
 
 int GfxRenderer::getTextAdvanceX(const int fontId, const char* text) const {
-  if (fontMap.count(fontId) == 0) {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
   uint32_t cp;
   int width = 0;
+  const auto& font = fontIt->second;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
-    width += fontMap.at(fontId).getGlyph(cp, CrossPointFont::REGULAR)->xAdvance / FONT_SCALE;
+    width += font.getGlyph(cp, CrossPointFont::REGULAR)->xAdvance / FONT_SCALE;
   }
   return width;
 }
 
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
-  if (fontMap.count(fontId) == 0) {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
-  return fontMap.at(fontId).data.header.ascender / FONT_SCALE;
+  return fontIt->second.data.header.ascender / FONT_SCALE;
 }
 
 int GfxRenderer::getLineHeight(const int fontId) const {
-  if (fontMap.count(fontId) == 0) {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
-  return fontMap.at(fontId).data.header.height / FONT_SCALE;
+  return fontIt->second.data.header.height / FONT_SCALE;
 }
 
 int GfxRenderer::getTextHeight(const int fontId) const {
-  if (fontMap.count(fontId) == 0) {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
-  return fontMap.at(fontId).data.header.ascender / FONT_SCALE;
+  return fontIt->second.data.header.ascender / FONT_SCALE;
 }
 
 void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y, const char* text, const bool black,
@@ -786,12 +794,14 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
     return;
   }
 
-  if (fontMap.count(fontId) == 0) {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
     return;
   }
 
-  const auto cpFont = fontMap.at(fontId);
+
+  const auto& cpFont = fontIt->second;
   const int ascender = cpFont.data.header.ascender / FONT_SCALE;
   int yPos = y;
 
