@@ -1,14 +1,12 @@
 #pragma once
 #include <GfxRenderer.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
 
 #include <functional>
 #include <string>
 #include <utility>
 
 #include "../Activity.h"
+#include "util/ButtonNavigator.h"
 
 /**
  * Reusable keyboard entry activity for text input.
@@ -56,6 +54,7 @@ class KeyboardEntryActivity : public Activity {
   void onEnter() override;
   void onExit() override;
   void loop() override;
+  void render(Activity::RenderLock&&) override;
 
  private:
   std::string title;
@@ -63,14 +62,13 @@ class KeyboardEntryActivity : public Activity {
   std::string text;
   size_t maxLength;
   bool isPassword;
-  TaskHandle_t displayTaskHandle = nullptr;
-  SemaphoreHandle_t renderingMutex = nullptr;
-  bool updateRequired = false;
+
+  ButtonNavigator buttonNavigator;
 
   // Keyboard state
   int selectedRow = 0;
   int selectedCol = 0;
-  bool shiftActive = false;
+  int shiftState = 0;  // 0 = lower case, 1 = upper case, 2 = shift lock)
 
   // Callbacks
   OnCompleteCallback onComplete;
@@ -81,6 +79,7 @@ class KeyboardEntryActivity : public Activity {
   static constexpr int KEYS_PER_ROW = 13;  // Max keys per row (rows 0 and 1 have 13 keys)
   static const char* const keyboard[NUM_ROWS];
   static const char* const keyboardShift[NUM_ROWS];
+  static const char* const shiftString[3];
 
   // Special key positions (bottom row)
   static constexpr int SPECIAL_ROW = 4;
@@ -89,11 +88,8 @@ class KeyboardEntryActivity : public Activity {
   static constexpr int BACKSPACE_COL = 7;
   static constexpr int DONE_COL = 9;
 
-  static void taskTrampoline(void* param);
-  [[noreturn]] void displayTaskLoop();
   char getSelectedChar() const;
   void handleKeyPress();
   int getRowLength(int row) const;
-  void render() const;
   void renderItemWithSelector(int x, int y, const char* item, bool isSelected) const;
 };

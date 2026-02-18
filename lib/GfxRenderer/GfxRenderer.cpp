@@ -1,6 +1,15 @@
 #include "GfxRenderer.h"
 
+#include <Logging.h>
 #include <Utf8.h>
+
+void GfxRenderer::begin() {
+  frameBuffer = display.getFrameBuffer();
+  if (!frameBuffer) {
+    LOG_ERR("GFX", "!! No framebuffer");
+    assert(false);
+  }
+}
 
 #include "Group5/g5dec.inl"
 
@@ -31,59 +40,58 @@ uint8_t bitCount[] = {
 
 void GfxRenderer::insertFont(const int fontId, CrossPointFont font) { fontMap.insert({fontId, font}); }
 
-void GfxRenderer::rotateCoordinates(const int x, const int y, int* rotatedX, int* rotatedY) const {
+// Translate logical (x,y) coordinates to physical panel coordinates based on current orientation
+// This should always be inlined for better performance
+static inline void rotateCoordinates(const GfxRenderer::Orientation orientation, const int x, const int y, int* phyX,
+                                     int* phyY) {
   switch (orientation) {
-    case Portrait: {
+    case GfxRenderer::Portrait: {
       // Logical portrait (480x800) → panel (800x480)
       // Rotation: 90 degrees clockwise
-      *rotatedX = y;
-      *rotatedY = HalDisplay::DISPLAY_HEIGHT - 1 - x;
+      *phyX = y;
+      *phyY = HalDisplay::DISPLAY_HEIGHT - 1 - x;
       break;
     }
-    case LandscapeClockwise: {
+    case GfxRenderer::LandscapeClockwise: {
       // Logical landscape (800x480) rotated 180 degrees (swap top/bottom and left/right)
-      *rotatedX = HalDisplay::DISPLAY_WIDTH - 1 - x;
-      *rotatedY = HalDisplay::DISPLAY_HEIGHT - 1 - y;
+      *phyX = HalDisplay::DISPLAY_WIDTH - 1 - x;
+      *phyY = HalDisplay::DISPLAY_HEIGHT - 1 - y;
       break;
     }
-    case PortraitInverted: {
+    case GfxRenderer::PortraitInverted: {
       // Logical portrait (480x800) → panel (800x480)
       // Rotation: 90 degrees counter-clockwise
-      *rotatedX = HalDisplay::DISPLAY_WIDTH - 1 - y;
-      *rotatedY = x;
+      *phyX = HalDisplay::DISPLAY_WIDTH - 1 - y;
+      *phyY = x;
       break;
     }
-    case LandscapeCounterClockwise: {
+    case GfxRenderer::LandscapeCounterClockwise: {
       // Logical landscape (800x480) aligned with panel orientation
-      *rotatedX = x;
-      *rotatedY = y;
+      *phyX = x;
+      *phyY = y;
       break;
     }
   }
 }
 
+// IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
+// efficient as possible.
 void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
-  uint8_t* frameBuffer = display.getFrameBuffer();
+  int phyX = 0;
+  int phyY = 0;
 
-  // Early return if no framebuffer is set
-  if (!frameBuffer) {
-    Serial.printf("[%lu] [GFX] !! No framebuffer\n", millis());
-    return;
-  }
-
-  int rotatedX = 0;
-  int rotatedY = 0;
-  rotateCoordinates(x, y, &rotatedX, &rotatedY);
+  // Note: this call should be inlined for better performance
+  rotateCoordinates(orientation, x, y, &phyX, &phyY);
 
   // Bounds checking against physical panel dimensions
-  if (rotatedX < 0 || rotatedX >= HalDisplay::DISPLAY_WIDTH || rotatedY < 0 || rotatedY >= HalDisplay::DISPLAY_HEIGHT) {
-    Serial.printf("[%lu] [GFX] !! Outside range (%d, %d) -> (%d, %d)\n", millis(), x, y, rotatedX, rotatedY);
+  if (phyX < 0 || phyX >= HalDisplay::DISPLAY_WIDTH || phyY < 0 || phyY >= HalDisplay::DISPLAY_HEIGHT) {
+    LOG_ERR("GFX", "!! Outside range (%d, %d) -> (%d, %d)", x, y, phyX, phyY);
     return;
   }
 
   // Calculate byte position and bit position
-  const uint16_t byteIndex = rotatedY * HalDisplay::DISPLAY_WIDTH_BYTES + (rotatedX / 8);
-  const uint8_t bitPosition = 7 - (rotatedX % 8);  // MSB first
+  const uint16_t byteIndex = phyY * HalDisplay::DISPLAY_WIDTH_BYTES + (phyX / 8);
+  const uint8_t bitPosition = 7 - (phyX % 8);  // MSB first
 
   if (state) {
     frameBuffer[byteIndex] &= ~(1 << bitPosition);  // Clear bit
@@ -94,7 +102,7 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
 
 int GfxRenderer::getTextWidth(const int fontId, const char* text, const CrossPointFont::Style style) const {
   if (fontMap.count(fontId) == 0) {
-    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
@@ -117,7 +125,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   }
 
   if (fontMap.count(fontId) == 0) {
-    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    LOG_ERR("GFX", "Font %d not found", fontId);
     return;
   }
   const auto cpFont = fontMap.at(fontId);
@@ -149,7 +157,13 @@ void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const bool state) con
     }
   } else {
     // TODO: Implement
-    Serial.printf("[%lu] [GFX] Line drawing not supported\n", millis());
+    LOG_ERR("GFX", "Line drawing not supported");
+  }
+}
+
+void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const int lineWidth, const bool state) const {
+  for (int i = 0; i < lineWidth; i++) {
+    drawLine(x1, y1 + i, x2, y2 + i, state);
   }
 }
 
@@ -160,16 +174,240 @@ void GfxRenderer::drawRect(const int x, const int y, const int width, const int 
   drawLine(x, y, x, y + height - 1, state);
 }
 
+// Border is inside the rectangle
+void GfxRenderer::drawRect(const int x, const int y, const int width, const int height, const int lineWidth,
+                           const bool state) const {
+  for (int i = 0; i < lineWidth; i++) {
+    drawLine(x + i, y + i, x + width - i, y + i, state);
+    drawLine(x + width - i, y + i, x + width - i, y + height - i, state);
+    drawLine(x + width - i, y + height - i, x + i, y + height - i, state);
+    drawLine(x + i, y + height - i, x + i, y + i, state);
+  }
+}
+
+void GfxRenderer::drawArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir,
+                          const int lineWidth, const bool state) const {
+  const int stroke = std::min(lineWidth, maxRadius);
+  const int innerRadius = std::max(maxRadius - stroke, 0);
+  const int outerRadiusSq = maxRadius * maxRadius;
+  const int innerRadiusSq = innerRadius * innerRadius;
+  for (int dy = 0; dy <= maxRadius; ++dy) {
+    for (int dx = 0; dx <= maxRadius; ++dx) {
+      const int distSq = dx * dx + dy * dy;
+      if (distSq > outerRadiusSq || distSq < innerRadiusSq) {
+        continue;
+      }
+      const int px = cx + xDir * dx;
+      const int py = cy + yDir * dy;
+      drawPixel(px, py, state);
+    }
+  }
+};
+
+// Border is inside the rectangle, rounded corners
+void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, const int height, const int lineWidth,
+                                  const int cornerRadius, bool state) const {
+  drawRoundedRect(x, y, width, height, lineWidth, cornerRadius, true, true, true, true, state);
+}
+
+// Border is inside the rectangle, rounded corners
+void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, const int height, const int lineWidth,
+                                  const int cornerRadius, bool roundTopLeft, bool roundTopRight, bool roundBottomLeft,
+                                  bool roundBottomRight, bool state) const {
+  if (lineWidth <= 0 || width <= 0 || height <= 0) {
+    return;
+  }
+
+  const int maxRadius = std::min({cornerRadius, width / 2, height / 2});
+  if (maxRadius <= 0) {
+    drawRect(x, y, width, height, lineWidth, state);
+    return;
+  }
+
+  const int stroke = std::min(lineWidth, maxRadius);
+  const int right = x + width - 1;
+  const int bottom = y + height - 1;
+
+  const int horizontalWidth = width - 2 * maxRadius;
+  if (horizontalWidth > 0) {
+    if (roundTopLeft || roundTopRight) {
+      fillRect(x + maxRadius, y, horizontalWidth, stroke, state);
+    }
+    if (roundBottomLeft || roundBottomRight) {
+      fillRect(x + maxRadius, bottom - stroke + 1, horizontalWidth, stroke, state);
+    }
+  }
+
+  const int verticalHeight = height - 2 * maxRadius;
+  if (verticalHeight > 0) {
+    if (roundTopLeft || roundBottomLeft) {
+      fillRect(x, y + maxRadius, stroke, verticalHeight, state);
+    }
+    if (roundTopRight || roundBottomRight) {
+      fillRect(right - stroke + 1, y + maxRadius, stroke, verticalHeight, state);
+    }
+  }
+
+  if (roundTopLeft) {
+    drawArc(maxRadius, x + maxRadius, y + maxRadius, -1, -1, lineWidth, state);
+  }
+  if (roundTopRight) {
+    drawArc(maxRadius, right - maxRadius, y + maxRadius, 1, -1, lineWidth, state);
+  }
+  if (roundBottomRight) {
+    drawArc(maxRadius, right - maxRadius, bottom - maxRadius, 1, 1, lineWidth, state);
+  }
+  if (roundBottomLeft) {
+    drawArc(maxRadius, x + maxRadius, bottom - maxRadius, -1, 1, lineWidth, state);
+  }
+}
+
 void GfxRenderer::fillRect(const int x, const int y, const int width, const int height, const bool state) const {
   for (int fillY = y; fillY < y + height; fillY++) {
     drawLine(x, fillY, x + width - 1, fillY, state);
   }
 }
 
+// NOTE: Those are in critical path, and need to be templated to avoid runtime checks for every pixel.
+// Any branching must be done outside the loops to avoid performance degradation.
+template <>
+void GfxRenderer::drawPixelDither<Color::Clear>(const int x, const int y) const {
+  // Do nothing
+}
+
+template <>
+void GfxRenderer::drawPixelDither<Color::Black>(const int x, const int y) const {
+  drawPixel(x, y, true);
+}
+
+template <>
+void GfxRenderer::drawPixelDither<Color::White>(const int x, const int y) const {
+  drawPixel(x, y, false);
+}
+
+template <>
+void GfxRenderer::drawPixelDither<Color::LightGray>(const int x, const int y) const {
+  drawPixel(x, y, x % 2 == 0 && y % 2 == 0);
+}
+
+template <>
+void GfxRenderer::drawPixelDither<Color::DarkGray>(const int x, const int y) const {
+  drawPixel(x, y, (x + y) % 2 == 0);  // TODO: maybe find a better pattern?
+}
+
+void GfxRenderer::fillRectDither(const int x, const int y, const int width, const int height, Color color) const {
+  if (color == Color::Clear) {
+  } else if (color == Color::Black) {
+    fillRect(x, y, width, height, true);
+  } else if (color == Color::White) {
+    fillRect(x, y, width, height, false);
+  } else if (color == Color::LightGray) {
+    for (int fillY = y; fillY < y + height; fillY++) {
+      for (int fillX = x; fillX < x + width; fillX++) {
+        drawPixelDither<Color::LightGray>(fillX, fillY);
+      }
+    }
+  } else if (color == Color::DarkGray) {
+    for (int fillY = y; fillY < y + height; fillY++) {
+      for (int fillX = x; fillX < x + width; fillX++) {
+        drawPixelDither<Color::DarkGray>(fillX, fillY);
+      }
+    }
+  }
+}
+
+template <Color color>
+void GfxRenderer::fillArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir) const {
+  const int radiusSq = maxRadius * maxRadius;
+  for (int dy = 0; dy <= maxRadius; ++dy) {
+    for (int dx = 0; dx <= maxRadius; ++dx) {
+      const int distSq = dx * dx + dy * dy;
+      const int px = cx + xDir * dx;
+      const int py = cy + yDir * dy;
+      if (distSq <= radiusSq) {
+        drawPixelDither<color>(px, py);
+      }
+    }
+  }
+}
+
+void GfxRenderer::fillRoundedRect(const int x, const int y, const int width, const int height, const int cornerRadius,
+                                  const Color color) const {
+  fillRoundedRect(x, y, width, height, cornerRadius, true, true, true, true, color);
+}
+
+void GfxRenderer::fillRoundedRect(const int x, const int y, const int width, const int height, const int cornerRadius,
+                                  bool roundTopLeft, bool roundTopRight, bool roundBottomLeft, bool roundBottomRight,
+                                  const Color color) const {
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  const int maxRadius = std::min({cornerRadius, width / 2, height / 2});
+  if (maxRadius <= 0) {
+    fillRectDither(x, y, width, height, color);
+    return;
+  }
+
+  const int horizontalWidth = width - 2 * maxRadius;
+  if (horizontalWidth > 0) {
+    fillRectDither(x + maxRadius + 1, y, horizontalWidth - 2, height, color);
+  }
+
+  const int verticalHeight = height - 2 * maxRadius - 2;
+  if (verticalHeight > 0) {
+    fillRectDither(x, y + maxRadius + 1, maxRadius + 1, verticalHeight, color);
+    fillRectDither(x + width - maxRadius - 1, y + maxRadius + 1, maxRadius + 1, verticalHeight, color);
+  }
+
+  auto fillArcTemplated = [this](int maxRadius, int cx, int cy, int xDir, int yDir, Color color) {
+    switch (color) {
+      case Color::Clear:
+        break;
+      case Color::Black:
+        fillArc<Color::Black>(maxRadius, cx, cy, xDir, yDir);
+        break;
+      case Color::White:
+        fillArc<Color::White>(maxRadius, cx, cy, xDir, yDir);
+        break;
+      case Color::LightGray:
+        fillArc<Color::LightGray>(maxRadius, cx, cy, xDir, yDir);
+        break;
+      case Color::DarkGray:
+        fillArc<Color::DarkGray>(maxRadius, cx, cy, xDir, yDir);
+        break;
+    }
+  };
+
+  if (roundTopLeft) {
+    fillArcTemplated(maxRadius, x + maxRadius, y + maxRadius, -1, -1, color);
+  } else {
+    fillRectDither(x, y, maxRadius + 1, maxRadius + 1, color);
+  }
+
+  if (roundTopRight) {
+    fillArcTemplated(maxRadius, x + width - maxRadius - 1, y + maxRadius, 1, -1, color);
+  } else {
+    fillRectDither(x + width - maxRadius - 1, y, maxRadius + 1, maxRadius + 1, color);
+  }
+
+  if (roundBottomRight) {
+    fillArcTemplated(maxRadius, x + width - maxRadius - 1, y + height - maxRadius - 1, 1, 1, color);
+  } else {
+    fillRectDither(x + width - maxRadius - 1, y + height - maxRadius - 1, maxRadius + 1, maxRadius + 1, color);
+  }
+
+  if (roundBottomLeft) {
+    fillArcTemplated(maxRadius, x + maxRadius, y + height - maxRadius - 1, -1, 1, color);
+  } else {
+    fillRectDither(x, y + height - maxRadius - 1, maxRadius + 1, maxRadius + 1, color);
+  }
+}
+
 void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
   int rotatedX = 0;
   int rotatedY = 0;
-  rotateCoordinates(x, y, &rotatedX, &rotatedY);
+  rotateCoordinates(orientation, x, y, &rotatedX, &rotatedY);
   // Rotate origin corner
   switch (orientation) {
     case Portrait:
@@ -189,6 +427,10 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
   display.drawImage(bitmap, rotatedX, rotatedY, width, height);
 }
 
+void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
+  display.drawImage(bitmap, y, getScreenWidth() - width - x, height, width);
+}
+
 void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, const int maxWidth, const int maxHeight,
                              const float cropX, const float cropY) const {
   // For 1-bit bitmaps, use optimized 1-bit rendering path (no crop support for 1-bit)
@@ -201,8 +443,8 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
   bool isScaled = false;
   int cropPixX = std::floor(bitmap.getWidth() * cropX / 2.0f);
   int cropPixY = std::floor(bitmap.getHeight() * cropY / 2.0f);
-  Serial.printf("[%lu] [GFX] Cropping %dx%d by %dx%d pix, is %s\n", millis(), bitmap.getWidth(), bitmap.getHeight(),
-                cropPixX, cropPixY, bitmap.isTopDown() ? "top-down" : "bottom-up");
+  LOG_DBG("GFX", "Cropping %dx%d by %dx%d pix, is %s", bitmap.getWidth(), bitmap.getHeight(), cropPixX, cropPixY,
+          bitmap.isTopDown() ? "top-down" : "bottom-up");
 
   if (maxWidth > 0 && (1.0f - cropX) * bitmap.getWidth() > maxWidth) {
     scale = static_cast<float>(maxWidth) / static_cast<float>((1.0f - cropX) * bitmap.getWidth());
@@ -212,7 +454,7 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
     scale = std::min(scale, static_cast<float>(maxHeight) / static_cast<float>((1.0f - cropY) * bitmap.getHeight()));
     isScaled = true;
   }
-  Serial.printf("[%lu] [GFX] Scaling by %f - %s\n", millis(), scale, isScaled ? "scaled" : "not scaled");
+  LOG_DBG("GFX", "Scaling by %f - %s", scale, isScaled ? "scaled" : "not scaled");
 
   // Calculate output row size (2 bits per pixel, packed into bytes)
   // IMPORTANT: Use int, not uint8_t, to avoid overflow for images > 1020 pixels wide
@@ -221,7 +463,7 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
   auto* rowBytes = static_cast<uint8_t*>(malloc(bitmap.getRowBytes()));
 
   if (!outputRow || !rowBytes) {
-    Serial.printf("[%lu] [GFX] !! Failed to allocate BMP row buffers\n", millis());
+    LOG_ERR("GFX", "!! Failed to allocate BMP row buffers");
     free(outputRow);
     free(rowBytes);
     return;
@@ -240,7 +482,7 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
     }
 
     if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
-      Serial.printf("[%lu] [GFX] Failed to read row %d from bitmap\n", millis(), bmpY);
+      LOG_ERR("GFX", "Failed to read row %d from bitmap", bmpY);
       free(outputRow);
       free(rowBytes);
       return;
@@ -303,7 +545,7 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
   auto* rowBytes = static_cast<uint8_t*>(malloc(bitmap.getRowBytes()));
 
   if (!outputRow || !rowBytes) {
-    Serial.printf("[%lu] [GFX] !! Failed to allocate 1-bit BMP row buffers\n", millis());
+    LOG_ERR("GFX", "!! Failed to allocate 1-bit BMP row buffers");
     free(outputRow);
     free(rowBytes);
     return;
@@ -312,7 +554,7 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
   for (int bmpY = 0; bmpY < bitmap.getHeight(); bmpY++) {
     // Read rows sequentially using readNextRow
     if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
-      Serial.printf("[%lu] [GFX] Failed to read row %d from 1-bit bitmap\n", millis(), bmpY);
+      LOG_ERR("GFX", "Failed to read row %d from 1-bit bitmap", bmpY);
       free(outputRow);
       free(rowBytes);
       return;
@@ -370,7 +612,7 @@ void GfxRenderer::fillPolygon(const int* xPoints, const int* yPoints, int numPoi
   // Allocate node buffer for scanline algorithm
   auto* nodeX = static_cast<int*>(malloc(numPoints * sizeof(int)));
   if (!nodeX) {
-    Serial.printf("[%lu] [GFX] !! Failed to allocate polygon node buffer\n", millis());
+    LOG_ERR("GFX", "!! Failed to allocate polygon node buffer");
     return;
   }
 
@@ -421,30 +663,43 @@ void GfxRenderer::fillPolygon(const int* xPoints, const int* yPoints, int numPoi
   free(nodeX);
 }
 
-void GfxRenderer::clearScreen(const uint8_t color) const { display.clearScreen(color); }
+// For performance measurement (using static to allow "const" methods)
+static unsigned long start_ms = 0;
+
+void GfxRenderer::clearScreen(const uint8_t color) const {
+  start_ms = millis();
+  display.clearScreen(color);
+}
 
 void GfxRenderer::invertScreen() const {
-  uint8_t* buffer = display.getFrameBuffer();
-  if (!buffer) {
-    Serial.printf("[%lu] [GFX] !! No framebuffer in invertScreen\n", millis());
-    return;
-  }
   for (int i = 0; i < HalDisplay::BUFFER_SIZE; i++) {
-    buffer[i] = ~buffer[i];
+    frameBuffer[i] = ~frameBuffer[i];
   }
 }
 
-void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const { display.displayBuffer(refreshMode); }
+void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
+  auto elapsed = millis() - start_ms;
+  LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
+  display.displayBuffer(refreshMode, fadingFix);
+}
 
 std::string GfxRenderer::truncatedText(const int fontId, const char* text, const int maxWidth,
                                        const CrossPointFont::Style style) const {
+  if (!text || maxWidth <= 0) return "";
+
   std::string item = text;
-  int itemWidth = getTextWidth(fontId, item.c_str(), style);
-  while (itemWidth > maxWidth && item.length() > 8) {
-    item.replace(item.length() - 5, 5, "...");
-    itemWidth = getTextWidth(fontId, item.c_str(), style);
+  const char* ellipsis = "...";
+  int textWidth = getTextWidth(fontId, item.c_str(), style);
+  if (textWidth <= maxWidth) {
+    // Text fits, return as is
+    return item;
   }
-  return item;
+
+  while (!item.empty() && getTextWidth(fontId, (item + ellipsis).c_str(), style) >= maxWidth) {
+    utf8RemoveLastChar(item);
+  }
+
+  return item.empty() ? ellipsis : item + ellipsis;
 }
 
 // Note: Internal driver treats screen in command orientation; this library exposes a logical orientation
@@ -478,16 +733,30 @@ int GfxRenderer::getScreenHeight() const {
 
 int GfxRenderer::getSpaceWidth(const int fontId) const {
   if (fontMap.count(fontId) == 0) {
-    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
   return fontMap.at(fontId).getGlyph(' ', CrossPointFont::Style::REGULAR)->xAdvance / FONT_SCALE;
 }
 
+int GfxRenderer::getTextAdvanceX(const int fontId, const char* text) const {
+  if (fontMap.count(fontId) == 0) {
+    LOG_ERR("GFX", "Font %d not found", fontId);
+    return 0;
+  }
+
+  uint32_t cp;
+  int width = 0;
+  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+    width += fontMap.at(fontId).getGlyph(cp, CrossPointFont::REGULAR)->xAdvance / FONT_SCALE;
+  }
+  return width;
+}
+
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
   if (fontMap.count(fontId) == 0) {
-    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
@@ -496,95 +765,16 @@ int GfxRenderer::getFontAscenderSize(const int fontId) const {
 
 int GfxRenderer::getLineHeight(const int fontId) const {
   if (fontMap.count(fontId) == 0) {
-    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
 
   return fontMap.at(fontId).data.header.height / FONT_SCALE;
 }
 
-void GfxRenderer::drawButtonHints(const int fontId, const char* btn1, const char* btn2, const char* btn3,
-                                  const char* btn4) {
-  const Orientation orig_orientation = getOrientation();
-  setOrientation(Orientation::Portrait);
-
-  const int pageHeight = getScreenHeight();
-  constexpr int buttonWidth = 106;
-  constexpr int buttonHeight = 40;
-  constexpr int buttonY = 40;     // Distance from bottom
-  constexpr int textYOffset = 7;  // Distance from top of button to text baseline
-  constexpr int buttonPositions[] = {25, 130, 245, 350};
-  const char* labels[] = {btn1, btn2, btn3, btn4};
-
-  for (int i = 0; i < 4; i++) {
-    // Only draw if the label is non-empty
-    if (labels[i] != nullptr && labels[i][0] != '\0') {
-      const int x = buttonPositions[i];
-      fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
-      drawRect(x, pageHeight - buttonY, buttonWidth, buttonHeight);
-      const int textWidth = getTextWidth(fontId, labels[i]);
-      const int textX = x + (buttonWidth - 1 - textWidth) / 2;
-      drawText(fontId, textX, pageHeight - buttonY + textYOffset, labels[i]);
-    }
-  }
-
-  setOrientation(orig_orientation);
-}
-
-void GfxRenderer::drawSideButtonHints(const int fontId, const char* topBtn, const char* bottomBtn) {
-  const int screenWidth = getScreenWidth();
-  constexpr int buttonWidth = 40;   // Width on screen (height when rotated)
-  constexpr int buttonHeight = 80;  // Height on screen (width when rotated)
-  constexpr int buttonX = 5;        // Distance from right edge
-  // Position for the button group - buttons share a border so they're adjacent
-  constexpr int topButtonY = 345;  // Top button position
-
-  const char* labels[] = {topBtn, bottomBtn};
-
-  // Draw the shared border for both buttons as one unit
-  const int x = screenWidth - buttonX - buttonWidth;
-
-  // Draw top button outline (3 sides, bottom open)
-  if (topBtn != nullptr && topBtn[0] != '\0') {
-    drawLine(x, topButtonY, x + buttonWidth - 1, topButtonY);                                       // Top
-    drawLine(x, topButtonY, x, topButtonY + buttonHeight - 1);                                      // Left
-    drawLine(x + buttonWidth - 1, topButtonY, x + buttonWidth - 1, topButtonY + buttonHeight - 1);  // Right
-  }
-
-  // Draw shared middle border
-  if ((topBtn != nullptr && topBtn[0] != '\0') || (bottomBtn != nullptr && bottomBtn[0] != '\0')) {
-    drawLine(x, topButtonY + buttonHeight, x + buttonWidth - 1, topButtonY + buttonHeight);  // Shared border
-  }
-
-  // Draw bottom button outline (3 sides, top is shared)
-  if (bottomBtn != nullptr && bottomBtn[0] != '\0') {
-    drawLine(x, topButtonY + buttonHeight, x, topButtonY + 2 * buttonHeight - 1);  // Left
-    drawLine(x + buttonWidth - 1, topButtonY + buttonHeight, x + buttonWidth - 1,
-             topButtonY + 2 * buttonHeight - 1);                                                             // Right
-    drawLine(x, topButtonY + 2 * buttonHeight - 1, x + buttonWidth - 1, topButtonY + 2 * buttonHeight - 1);  // Bottom
-  }
-
-  // Draw text for each button
-  for (int i = 0; i < 2; i++) {
-    if (labels[i] != nullptr && labels[i][0] != '\0') {
-      const int y = topButtonY + i * buttonHeight;
-
-      // Draw rotated text centered in the button
-      const int textWidth = getTextWidth(fontId, labels[i]);
-      const int textHeight = getTextHeight(fontId);
-
-      // Center the rotated text in the button
-      const int textX = x + (buttonWidth - textHeight) / 2;
-      const int textY = y + (buttonHeight + textWidth) / 2;
-
-      drawTextRotated90CW(fontId, textX, textY, labels[i]);
-    }
-  }
-}
-
 int GfxRenderer::getTextHeight(const int fontId) const {
   if (fontMap.count(fontId) == 0) {
-    Serial.printf("[%lu] [GFX] Font %d not found\n", millis(), fontId);
+    LOG_ERR("GFX", "Font %d not found", fontId);
     return 0;
   }
   return fontMap.at(fontId).data.header.ascender / FONT_SCALE;
@@ -592,19 +782,116 @@ int GfxRenderer::getTextHeight(const int fontId) const {
 
 void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y, const char* text, const bool black,
                                       const CrossPointFont::Style style) {
-  // Stubbed
-  // TODO: Set orientation, draw text, set orientation back
+  if (text == nullptr || *text == '\0') {
+    return;
+  }
+
+  if (fontMap.count(fontId) == 0) {
+    LOG_ERR("GFX", "Font %d not found", fontId);
+    return;
+  }
+
+  const auto cpFont = fontMap.at(fontId);
+  const int ascender = cpFont.data.header.ascender / FONT_SCALE;
+  int yPos = y;
+
+  uint32_t cp;
+  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
+    const CrossPointFontGlyph* pGlyph = cpFont.getGlyph(cp, style);
+    if (!pGlyph) {
+      pGlyph = cpFont.getGlyph(REPLACEMENT_GLYPH, style);
+    }
+    if (!pGlyph) {
+      continue;
+    }
+
+    const int w = pGlyph->width;
+    const int h = pGlyph->height;
+    const uint32_t bitmapOffset = pGlyph->bitmapOffset;
+    const int xAdvance = pGlyph->xAdvance / FONT_SCALE;
+    const int xOffset = pGlyph->xOffset / FONT_SCALE;
+    const int yOffset = pGlyph->yOffset / FONT_SCALE;
+
+    if (w <= 1) {
+      yPos -= xAdvance;
+      continue;
+    }
+
+    uint8_t* bitmapData = cpFont.data.bitmap + bitmapOffset;
+    const int compressedSize = pGlyph[1].bitmapOffset - bitmapOffset;
+    if (compressedSize < 0 || compressedSize > 4096) {
+      LOG_ERR("GFX", "Invalid glyph compressed size: %d", compressedSize);
+      yPos -= xAdvance;
+      continue;
+    }
+
+    const int rc = g5_decode_init(&g5dec, w, h, bitmapData, compressedSize);
+    if (rc != G5_SUCCESS) {
+      yPos -= xAdvance;
+      continue;
+    }
+
+    const int scaledWidth = w / FONT_SCALE;
+    const int scaledHeight = h / FONT_SCALE;
+
+    static_assert(FONT_SCALE == 2, "All this code depends on FONT_SCALE being 2");
+    for (int row = 0; row < scaledHeight; row++) {
+      g5_decode_line(&g5dec, u8Cache);
+      uint8_t* s = u8Cache;
+      uint8_t u8 = *s++;
+      g5_decode_line(&g5dec, u8Cache2);
+      uint8_t* s2 = u8Cache2;
+      uint8_t u82 = *s2++;
+      uint8_t u8Count = 8;
+
+      for (int col = 0; col < scaledWidth; col++) {
+        const uint8_t blkCnt = bitCount[(u8 & 0xC0 | (u82 & 0xC0) >> 2) >> 4];
+        u8 <<= FONT_SCALE;
+        u82 <<= FONT_SCALE;
+        u8Count -= FONT_SCALE;
+
+        if (u8Count == 0) {
+          u8 = *s++;
+          u82 = *s2++;
+          u8Count = 8;
+        }
+
+        uint8_t bmpVal;
+        if (blkCnt == 4)
+          bmpVal = 0;
+        else if (blkCnt == 3 || blkCnt == 2)
+          bmpVal = 1;
+        else if (blkCnt == 1)
+          bmpVal = 2;
+        else
+          bmpVal = 3;
+
+        const int screenX = x + (ascender - yOffset + row);
+        const int screenY = yPos - xOffset - col;
+
+        if (renderMode == BW && bmpVal < 3) {
+          drawPixel(screenX, screenY, black);
+        } else if (renderMode == GRAYSCALE_MSB && (bmpVal == 1 || bmpVal == 2)) {
+          drawPixel(screenX, screenY, false);
+        } else if (renderMode == GRAYSCALE_LSB && bmpVal == 1) {
+          drawPixel(screenX, screenY, false);
+        }
+      }
+    }
+
+    yPos -= xAdvance;
+  }
 }
 
-uint8_t* GfxRenderer::getFrameBuffer() const { return display.getFrameBuffer(); }
+uint8_t* GfxRenderer::getFrameBuffer() const { return frameBuffer; }
 
 size_t GfxRenderer::getBufferSize() { return HalDisplay::BUFFER_SIZE; }
 
-void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuffers(display.getFrameBuffer()); }
+void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuffers(frameBuffer); }
 
-void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(display.getFrameBuffer()); }
+void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
 
-void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(); }
+void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFix); }
 
 void GfxRenderer::freeBwBufferChunks() {
   for (auto& bwBufferChunk : bwBufferChunks) {
@@ -622,18 +909,11 @@ void GfxRenderer::freeBwBufferChunks() {
  * Returns true if buffer was stored successfully, false if allocation failed.
  */
 bool GfxRenderer::storeBwBuffer() {
-  const uint8_t* frameBuffer = display.getFrameBuffer();
-  if (!frameBuffer) {
-    Serial.printf("[%lu] [GFX] !! No framebuffer in storeBwBuffer\n", millis());
-    return false;
-  }
-
   // Allocate and copy each chunk
   for (size_t i = 0; i < BW_BUFFER_NUM_CHUNKS; i++) {
     // Check if any chunks are already allocated
     if (bwBufferChunks[i]) {
-      Serial.printf("[%lu] [GFX] !! BW buffer chunk %zu already stored - this is likely a bug, freeing chunk\n",
-                    millis(), i);
+      LOG_ERR("GFX", "!! BW buffer chunk %zu already stored - this is likely a bug, freeing chunk", i);
       free(bwBufferChunks[i]);
       bwBufferChunks[i] = nullptr;
     }
@@ -642,8 +922,7 @@ bool GfxRenderer::storeBwBuffer() {
     bwBufferChunks[i] = static_cast<uint8_t*>(malloc(BW_BUFFER_CHUNK_SIZE));
 
     if (!bwBufferChunks[i]) {
-      Serial.printf("[%lu] [GFX] !! Failed to allocate BW buffer chunk %zu (%zu bytes)\n", millis(), i,
-                    BW_BUFFER_CHUNK_SIZE);
+      LOG_ERR("GFX", "!! Failed to allocate BW buffer chunk %zu (%zu bytes)", i, BW_BUFFER_CHUNK_SIZE);
       // Free previously allocated chunks
       freeBwBufferChunks();
       return false;
@@ -652,8 +931,7 @@ bool GfxRenderer::storeBwBuffer() {
     memcpy(bwBufferChunks[i], frameBuffer + offset, BW_BUFFER_CHUNK_SIZE);
   }
 
-  Serial.printf("[%lu] [GFX] Stored BW buffer in %zu chunks (%zu bytes each)\n", millis(), BW_BUFFER_NUM_CHUNKS,
-                BW_BUFFER_CHUNK_SIZE);
+  LOG_DBG("GFX", "Stored BW buffer in %zu chunks (%zu bytes each)", BW_BUFFER_NUM_CHUNKS, BW_BUFFER_CHUNK_SIZE);
   return true;
 }
 
@@ -677,17 +955,10 @@ void GfxRenderer::restoreBwBuffer() {
     return;
   }
 
-  uint8_t* frameBuffer = display.getFrameBuffer();
-  if (!frameBuffer) {
-    Serial.printf("[%lu] [GFX] !! No framebuffer in restoreBwBuffer\n", millis());
-    freeBwBufferChunks();
-    return;
-  }
-
   for (size_t i = 0; i < BW_BUFFER_NUM_CHUNKS; i++) {
     // Check if chunk is missing
     if (!bwBufferChunks[i]) {
-      Serial.printf("[%lu] [GFX] !! BW buffer chunks not stored - this is likely a bug\n", millis());
+      LOG_ERR("GFX", "!! BW buffer chunks not stored - this is likely a bug");
       freeBwBufferChunks();
       return;
     }
@@ -699,7 +970,7 @@ void GfxRenderer::restoreBwBuffer() {
   display.cleanupGrayscaleBuffers(frameBuffer);
 
   freeBwBufferChunks();
-  Serial.printf("[%lu] [GFX] Restored and freed BW buffer chunks\n", millis());
+  LOG_DBG("GFX", "Restored and freed BW buffer chunks");
 }
 
 /**
@@ -707,7 +978,6 @@ void GfxRenderer::restoreBwBuffer() {
  * Use this when BW buffer was re-rendered instead of stored/restored.
  */
 void GfxRenderer::cleanupGrayscaleWithFrameBuffer() const {
-  const uint8_t* frameBuffer = display.getFrameBuffer();
   if (frameBuffer) {
     display.cleanupGrayscaleBuffers(frameBuffer);
   }
@@ -745,7 +1015,7 @@ void GfxRenderer::renderChar(const CrossPointFont& cpFont, const uint32_t cp, in
   ty = pGlyph[1].bitmapOffset - bitmapOffet;
 
   if (ty < 0 || ty > 4096) {
-    Serial.printf("[%lu] [GFX] Invalid glyph compressed size: %d\n", millis(), ty);
+    LOG_ERR("GFX", "Invalid glyph compressed size: %d", ty);
     return;
   }
   rc = g5_decode_init(&g5dec, w, h, s, ty);
