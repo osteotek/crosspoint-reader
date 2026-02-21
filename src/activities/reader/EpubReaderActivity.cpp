@@ -62,6 +62,9 @@ void applyReaderOrientation(GfxRenderer& renderer, const uint8_t orientation) {
 void EpubReaderActivity::onEnter() {
   ActivityWithSubactivity::onEnter();
 
+  // No render is pending yet, so allow page-turn input processing.
+  pageTurnAwaitingRender = false;
+
   if (!epub) {
     return;
   }
@@ -193,12 +196,18 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  // While a page-turn-triggered update is waiting to be rendered, block new page turns.
+  // This prevents queued increments (e.g. 6 -> 8) under fast hold-repeat.
+  if (pageTurnAwaitingRender) {
+    return;
+  }
+
   // When long-press chapter skip is disabled, turn pages on press instead of release.
-  const bool usePressForPageTurn = !SETTINGS.longPressChapterSkip;
   const std::vector<MappedInputManager::Button> prevButtons = {MappedInputManager::Button::PageBack,
                                                                MappedInputManager::Button::Left};
   const std::vector<MappedInputManager::Button> nextButtons = {MappedInputManager::Button::PageForward,
                                                                MappedInputManager::Button::Right};
+  const bool usePressForPageTurn = !SETTINGS.longPressChapterSkip;
   bool prevTriggered = false;
   bool nextTriggered = false;
   // Track release events so we can suppress repeat triggers on the same frame.
@@ -243,6 +252,8 @@ void EpubReaderActivity::loop() {
   if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
     currentSpineIndex = epub->getSpineItemsCount() - 1;
     nextPageNumber = UINT16_MAX;
+    // Hold further page-turn input until this state change is rendered.
+    pageTurnAwaitingRender = true;
     requestUpdate();
     return;
   }
@@ -257,12 +268,16 @@ void EpubReaderActivity::loop() {
       currentSpineIndex = nextTriggered ? currentSpineIndex + 1 : currentSpineIndex - 1;
       section.reset();
     }
+    // Hold further page-turn input until this chapter jump is rendered.
+    pageTurnAwaitingRender = true;
     requestUpdate();
     return;
   }
 
   // No current section, attempt to rerender the book
   if (!section) {
+    // A render is required before another page-turn decision can be made.
+    pageTurnAwaitingRender = true;
     requestUpdate();
     return;
   }
@@ -279,6 +294,8 @@ void EpubReaderActivity::loop() {
         section.reset();
       }
     }
+    // Wait for render completion before processing another turn input.
+    pageTurnAwaitingRender = true;
     requestUpdate();
   } else {
     if (section->currentPage < section->pageCount - 1) {
@@ -292,6 +309,8 @@ void EpubReaderActivity::loop() {
         section.reset();
       }
     }
+    // Wait for render completion before processing another turn input.
+    pageTurnAwaitingRender = true;
     requestUpdate();
   }
 }
@@ -516,6 +535,8 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
 // TODO: Failure handling
 void EpubReaderActivity::render(Activity::RenderLock&& lock) {
   if (!epub) {
+    // Unblock input even if render exits early.
+    pageTurnAwaitingRender = false;
     return;
   }
 
@@ -533,6 +554,8 @@ void EpubReaderActivity::render(Activity::RenderLock&& lock) {
     renderer.clearScreen();
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
+    // Render completed; allow next page-turn input.
+    pageTurnAwaitingRender = false;
     return;
   }
 
@@ -577,6 +600,8 @@ void EpubReaderActivity::render(Activity::RenderLock&& lock) {
                                       viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle, popupFn)) {
         LOG_ERR("ERS", "Failed to persist page data to SD");
         section.reset();
+        // Build failure path must still release the page-turn input gate.
+        pageTurnAwaitingRender = false;
         return;
       }
     } else {
@@ -618,6 +643,8 @@ void EpubReaderActivity::render(Activity::RenderLock&& lock) {
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_EMPTY_CHAPTER), true, EpdFontFamily::BOLD);
     renderStatusBar(orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     renderer.displayBuffer();
+    // Render completed; allow next page-turn input.
+    pageTurnAwaitingRender = false;
     return;
   }
 
@@ -626,6 +653,8 @@ void EpubReaderActivity::render(Activity::RenderLock&& lock) {
     renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_OUT_OF_BOUNDS), true, EpdFontFamily::BOLD);
     renderStatusBar(orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     renderer.displayBuffer();
+    // Render completed; allow next page-turn input.
+    pageTurnAwaitingRender = false;
     return;
   }
 
@@ -637,6 +666,8 @@ void EpubReaderActivity::render(Activity::RenderLock&& lock) {
       section.reset();
       requestUpdate();  // Try again after clearing cache
       // TODO: prevent infinite loop if the page keeps failing to load for some reason
+      // Error path must still release the page-turn input gate.
+      pageTurnAwaitingRender = false;
       return;
     }
     const auto start = millis();
@@ -645,6 +676,8 @@ void EpubReaderActivity::render(Activity::RenderLock&& lock) {
     renderer.clearFontCache();
   }
   saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
+  // Normal render completion; allow next page-turn input.
+  pageTurnAwaitingRender = false;
 }
 
 void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount) {

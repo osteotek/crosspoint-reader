@@ -22,6 +22,7 @@ class EpubReaderActivity final : public ActivityWithSubactivity {
   bool pendingSubactivityExit = false;  // Defer subactivity exit to avoid use-after-free
   bool pendingGoHome = false;           // Defer go home to avoid race condition with display task
   bool skipNextButtonCheck = false;     // Skip button processing for one frame after subactivity exit
+  bool pageTurnAwaitingRender = false;  // Prevent multiple page turns before the previous render finishes
   ButtonNavigator buttonNavigator;  // Handles repeat-aware page navigation input.
   const std::function<void()> onGoBack;
   const std::function<void()> onGoHome;
