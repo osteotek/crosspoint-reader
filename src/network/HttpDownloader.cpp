@@ -127,6 +127,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
       break;
     }
     applyCommonClientSetup(http);
+    http.setReserveFullRecord(options.reserveFullRecord);
     // Credentials belong to the starting origin only: a redirect to another
     // origin (a CDN) must not receive them.
     if (freeink::fetchOrigin(current) == startOrigin) {

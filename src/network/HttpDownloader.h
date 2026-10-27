@@ -86,6 +86,11 @@ class HttpDownloader {
     std::vector<Header> headers;
     int* statusOut = nullptr;
     bool captureErrorBody = false;
+    // Lend wolfSSL one full-record buffer for the whole response (see
+    // SecureClient::reserveFullRecord()). Use when the caller keeps allocating
+    // while the body streams (a feed parser, a growing document): TLS would
+    // otherwise need a fresh ~16 KB block for each large record.
+    bool reserveFullRecord = false;
   };
 
   static bool fetchUrl(const std::string& url, const DataCallback& onData, const FetchOptions& options);

@@ -18,6 +18,7 @@ fo::HttpResult OpdsHttpTransport::get(const std::string& url, const fo::HttpAuth
   if (acceptLanguage) options.acceptLanguage = acceptLanguage;
   options.captureErrorBody = captureErrorBody;
   options.statusOut = &status;
+  options.reserveFullRecord = true;  // OPDS bodies are parsed or collected while they stream
   const bool ok = HttpDownloader::fetchUrl(url, onChunk, options);
   return fo::HttpResult{ok, status};
 }

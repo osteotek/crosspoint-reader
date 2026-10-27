@@ -260,6 +260,16 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiScreen& screen) {
     return;
   }
 
+  if (listTruncated) {
+    fui::TextStyle centered = screen.theme().smallText;
+    centered.align = fui::TextAlign::Center;
+    const int16_t lineHeight = screen.target().lineHeight(centered.font);
+    const auto gap = static_cast<int16_t>(UITheme::getInstance().getMetrics().verticalSpacing);
+    const fui::Rect band = screen.takeBottom(static_cast<int16_t>(lineHeight + gap));
+    screen.target().text(fui::Rect{band.x, static_cast<int16_t>(band.y + gap / 2), band.width, lineHeight},
+                         tr(STR_OPDS_LIST_TRUNCATED), centered);
+  }
+
   // rowItems is built whenever entries changes (see rebuildRowItems(), called
   // from fetchFeed()/releaseEntries()) and reused here on every repaint.
   fui::ListProps props;
@@ -320,6 +330,12 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   }
 
   const std::string url = UrlUtils::buildUrl(server.url, path);
+  // The feed parser budgets its rows from the heap free when the body starts;
+  // rebuildable SD-font caches (they repopulate on demand) would only shrink it.
+  {
+    RenderLock lock;  // the loading repaint may still be drawing with these caches
+    if (auto* fcm = renderer.getFontCacheManager()) fcm->releaseSdFontCaches();
+  }
   OpdsFeedParser parser;
   const auto status = opdsClient.fetchFeed(url, parser);
   // The token state may have changed (renewed, or cleared on failure); persist
@@ -373,26 +389,45 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
 
   // Pagination is a bottom tab bar (buildPaginationBar), not list rows.
   auto facetRows = parser.takeFacetEntries();
-  entries.reserve(entries.size() + facetRows.size());
-  // Facet groups (sort orders, filters) come after the catalog content, each
-  // under its own section heading.
-  entries.insert(entries.end(), std::make_move_iterator(facetRows.begin()), std::make_move_iterator(facetRows.end()));
 
   // Standard OPDS user collections (loans, reading list, history), advertised
   // as feed-level links, become navigation rows under a "My Account" heading
   // so they are reachable without pasting a URL. Authentication kicks in when
   // one is opened. Only surfaced on the catalog root (no navigation history),
   // since the same links repeat on every feed.
+  struct UserLink {
+    const std::string& href;
+    const char* label;  // tr()'d value; runtime StrId can't go through the macro
+  };
+  const UserLink userLinks[] = {
+      {parser.getShelfUrl(), tr(STR_OPDS_SHELF)},
+      {parser.getWishlistUrl(), tr(STR_OPDS_WISHLIST)},
+      {parser.getHistoryUrl(), tr(STR_OPDS_HISTORY)},
+  };
+  size_t userLinkCount = 0;
   if (navigationHistory.empty()) {
-    struct UserLink {
-      const std::string& href;
-      const char* label;  // tr()'d value; runtime StrId can't go through the macro
-    };
-    const UserLink userLinks[] = {
-        {parser.getShelfUrl(), tr(STR_OPDS_SHELF)},
-        {parser.getWishlistUrl(), tr(STR_OPDS_WISHLIST)},
-        {parser.getHistoryUrl(), tr(STR_OPDS_HISTORY)},
-    };
+    for (const auto& link : userLinks) userLinkCount += link.href.empty() ? 0 : 1;
+  }
+
+  // The parser fills its row storage exactly, so make room for the optional
+  // rows below in one step. Growing needs one block for the new storage while
+  // the old one is still held; without it, leave those rows out.
+  const size_t wantedRows = entries.size() + facetRows.size() + userLinkCount;
+  bool optionalRows = wantedRows <= entries.capacity();
+  constexpr size_t GROW_BLOCK_SLACK = 4096;  // block left over for the rows' later strings
+  if (!optionalRows && ESP.getMaxAllocHeap() >= wantedRows * sizeof(OpdsEntry) + GROW_BLOCK_SLACK) {
+    entries.reserve(wantedRows);
+    optionalRows = true;
+  }
+  listTruncated = feedTruncated || !optionalRows;
+
+  // Facet groups (sort orders, filters) come after the catalog content, each
+  // under its own section heading.
+  if (optionalRows) {
+    entries.insert(entries.end(), std::make_move_iterator(facetRows.begin()), std::make_move_iterator(facetRows.end()));
+  }
+
+  if (optionalRows && userLinkCount > 0) {
     bool firstUserLink = true;
     for (const auto& link : userLinks) {
       if (link.href.empty() || entries.size() >= OpdsLimits::MAX_ENTRIES) continue;
@@ -407,8 +442,8 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
       entries.push_back(std::move(entry));
     }
   }
-  if (feedTruncated) {
-    LOG_INF("OPDS", "Feed truncated to fit memory");
+  if (listTruncated) {
+    LOG_INF("OPDS", "Feed list truncated");
   }
 
   // Rows first: the render task reads rowItems once the state is BROWSING.
@@ -446,6 +481,7 @@ void OpdsBookBrowserActivity::releaseEntries() {
   // The app's interaction table holds row indices (and hit rects) for the old
   // entries; stop routing touches against it until the next render.
   closeRouting();
+  listTruncated = false;
   std::vector<OpdsEntry>().swap(entries);
   std::vector<fui::ListItem>().swap(rowItems);
 }

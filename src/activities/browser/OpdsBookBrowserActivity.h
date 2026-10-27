@@ -58,6 +58,7 @@ class OpdsBookBrowserActivity final : public CatalogActivity {
   }
   // Title of the current feed (shown in the header when no search is active).
   std::string feedTitle;
+  bool listTruncated = false;  // the feed had more rows than were kept; noted under the list
   // Feed-reported pagination ("Page N of M" between the arrows); 0 = unknown.
   int pageCurrent = 0;
   int pageTotal = 0;
