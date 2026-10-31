@@ -134,12 +134,14 @@ window.CrossPoint = window.CrossPoint || {
 };
 
 // beforeLoad runs once, before the first matching plugin script; a failure
-// there does not stop the plugins from loading.
+// there does not stop the plugins from loading. Resolves to false when the
+// plugin list cannot be loaded.
 async function loadPlugins(mount, beforeLoad) {
   const host = document.getElementById('plugin-container');
-  if (!host) return;
+  if (!host) return false;
   let list;
-  try { list = await (await fetch('/api/plugins')).json(); } catch (e) { return; }
+  try { list = await (await fetch('/api/plugins')).json(); } catch (e) { return false; }
+  if (!Array.isArray(list)) return false;  // e.g. {"error":"out of memory"}
   for (const p of list) {
     // A null mount loads everything: the headless runner page hosts all
     // plugins so any registered action can execute there.
@@ -181,4 +183,5 @@ async function loadPlugins(mount, beforeLoad) {
       container.replaceChildren(h, msg);
     }
   }
+  return true;
 }

@@ -20,12 +20,11 @@
 <script src="/js/plugin-host.js"></script>
 <script>
   (async () => {
-    if (typeof loadPlugins !== 'function') {
-      // The plugin host is a separate request and can fail on a busy device.
+    // The plugin host and the plugin list are separate requests and can fail on a busy device.
+    if (typeof loadPlugins !== 'function' || !(await loadPlugins('settings'))) {
       document.querySelector('#empty-state p').textContent = 'Could not load plugins. Reload the page.';
-    } else {
-      await loadPlugins('settings');
-      if (document.getElementById('plugin-container').children.length) return;
+    } else if (document.getElementById('plugin-container').children.length) {
+      return;
     }
     document.getElementById('empty-state').hidden = false;
   })();
